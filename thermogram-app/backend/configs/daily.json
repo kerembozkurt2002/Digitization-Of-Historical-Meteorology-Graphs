@@ -1,0 +1,62 @@
+{
+  "name": "Daily Chart",
+  "chart_type": "daily",
+  "description": "Configuration for 24-hour daily thermogram charts",
+  "preprocess": {
+    "clahe_clip_limit": 2.0,
+    "clahe_tile_size": 8,
+    "bilateral_d": 9,
+    "bilateral_sigma_color": 75.0,
+    "bilateral_sigma_space": 75.0,
+    "roi_margin": 0.02
+  },
+  "grid_detection": {
+    "vertical_kernel_height": 25,
+    "vertical_kernel_width": 1,
+    "horizontal_kernel_height": 1,
+    "horizontal_kernel_width": 25,
+    "hough_threshold": 30,
+    "hough_min_line_length_ratio": 0.125,
+    "hough_max_gap": 50,
+    "cluster_threshold": 10,
+    "min_line_angle_vertical": 60.0,
+    "max_line_angle_horizontal": 30.0
+  },
+  "dewarp": {
+    "num_y_samples": 50,
+    "min_line_spacing": 20,
+    "polynomial_degree": 2,
+    "max_displacement_ratio": 0.1,
+    "gaussian_kernel_size": 15
+  },
+  "calibration": {
+    "time_axis": "x",
+    "hours_per_chart": 24,
+    "temp_axis": "y",
+    "temp_min": -10.0,
+    "temp_max": 40.0,
+    "temp_major_gridlines": 10
+  },
+  "segment": {
+    "curve_hue_min": 0,
+    "curve_hue_max": 180,
+    "curve_sat_min": 0,
+    "curve_sat_max": 50,
+    "curve_val_min": 0,
+    "curve_val_max": 100,
+    "curve_kernel_size": 3,
+    "min_curve_length": 100
+  },
+  "digitize": {
+    "sample_interval_minutes": 10,
+    "interpolation_method": "linear",
+    "min_confidence": 0.5
+  },
+  "validation": {
+    "temp_tolerance": 5.0,
+    "max_temp_jump": 10.0,
+    "max_gap_minutes": 30,
+    "low_confidence_threshold": 0.6,
+    "review_required_threshold": 0.7
+  }
+}

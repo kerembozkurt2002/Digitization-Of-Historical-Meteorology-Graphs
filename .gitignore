@@ -1,7 +1,44 @@
 # Thermogram data files
 TERMOGRAM-1_ORNEK_DATA/
 
-# Documentation (wiki clone )
+# Documentation (wiki clone)
 docs/
 data/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.venv/
+venv/
+ENV/
+
+# Node.js
+node_modules/
+dist/
+.npm
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tauri
+src-tauri/target/
 

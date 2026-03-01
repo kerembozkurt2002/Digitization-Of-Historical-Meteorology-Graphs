@@ -1,0 +1,62 @@
+{
+  "name": "Weekly Chart",
+  "chart_type": "weekly",
+  "description": "Configuration for 7-day (168-hour) thermogram charts",
+  "preprocess": {
+    "clahe_clip_limit": 3.0,
+    "clahe_tile_size": 8,
+    "bilateral_d": 11,
+    "bilateral_sigma_color": 80.0,
+    "bilateral_sigma_space": 80.0,
+    "roi_margin": 0.02
+  },
+  "grid_detection": {
+    "vertical_kernel_height": 18,
+    "vertical_kernel_width": 1,
+    "horizontal_kernel_height": 1,
+    "horizontal_kernel_width": 35,
+    "hough_threshold": 25,
+    "hough_min_line_length_ratio": 0.08,
+    "hough_max_gap": 70,
+    "cluster_threshold": 6,
+    "min_line_angle_vertical": 55.0,
+    "max_line_angle_horizontal": 35.0
+  },
+  "dewarp": {
+    "num_y_samples": 70,
+    "min_line_spacing": 12,
+    "polynomial_degree": 3,
+    "max_displacement_ratio": 0.15,
+    "gaussian_kernel_size": 19
+  },
+  "calibration": {
+    "time_axis": "x",
+    "hours_per_chart": 168,
+    "temp_axis": "y",
+    "temp_min": -10.0,
+    "temp_max": 40.0,
+    "temp_major_gridlines": 10
+  },
+  "segment": {
+    "curve_hue_min": 0,
+    "curve_hue_max": 180,
+    "curve_sat_min": 0,
+    "curve_sat_max": 50,
+    "curve_val_min": 0,
+    "curve_val_max": 100,
+    "curve_kernel_size": 5,
+    "min_curve_length": 200
+  },
+  "digitize": {
+    "sample_interval_minutes": 60,
+    "interpolation_method": "linear",
+    "min_confidence": 0.45
+  },
+  "validation": {
+    "temp_tolerance": 6.0,
+    "max_temp_jump": 6.0,
+    "max_gap_minutes": 120,
+    "low_confidence_threshold": 0.55,
+    "review_required_threshold": 0.65
+  }
+}

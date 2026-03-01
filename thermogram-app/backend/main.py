@@ -234,13 +234,48 @@ def cmd_straightened_grid(args):
 
 def cmd_health(args):
     """Health check command."""
-    result = {
-        "success": True,
-        "message": "Backend is running",
-        "version": "1.0.0"
-    }
+    # Import all pipeline stages to verify they load
+    try:
+        from pipeline import (
+            Preprocessor,
+            Dewarper,
+            Calibrator,
+            Segmenter,
+            Digitizer,
+            Validator,
+        )
+        from configs import load_config
+
+        stages = [
+            "1. Preprocessor",
+            "2. Dewarper",
+            "3. Calibrator",
+            "4. Segmenter",
+            "5. Digitizer",
+            "6. Validator",
+        ]
+
+        # Load config to verify
+        config = load_config('daily')
+
+        result = {
+            "success": True,
+            "status": "healthy",
+            "message": "Backend is running with all pipeline stages available",
+            "version": "2.0.0",
+            "stages_available": stages,
+            "config_types": ["daily", "four_day", "weekly"]
+        }
+    except Exception as e:
+        result = {
+            "success": False,
+            "status": "unhealthy",
+            "message": f"Backend error: {str(e)}",
+            "version": "2.0.0"
+        }
+
     print(json.dumps(result))
-    return 0
+    return 0 if result["success"] else 1
 
 
 def main():
