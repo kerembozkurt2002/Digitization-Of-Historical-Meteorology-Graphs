@@ -10,8 +10,12 @@ import type { PreviewResponse } from "../types";
 export function useProcessing() {
   const {
     imagePath,
+    calibration,
+    chartType,
     setOriginalImage,
-    setOverlayImage,
+    setHorizontalImage,
+    setVerticalImage,
+    setCombinedImage,
     setProcessingState,
     setViewMode,
   } = useImageStore();
@@ -30,43 +34,62 @@ export function useProcessing() {
     setProcessingState({
       stage: "preprocessing",
       progress: 10,
-      message: "Loading original...",
+      message: "Detecting horizontal lines...",
     });
 
     try {
-      // Get original image (algorithm 0)
-      const originalResult = await invoke<PreviewResponse>("preview_grid", {
-        imagePath: imagePath,
-        algorithm: 0,
-      });
-
-      if (originalResult.success && originalResult.preview_image) {
-        setOriginalImage(originalResult.preview_image);
-      }
-
-      setProcessingState({
-        stage: "dewarping",
-        progress: 50,
-        message: "Detecting horizontal grid lines...",
-      });
-
-      // Adaptive morphological algorithm (algorithm 4)
-      const adaptiveResult = await invoke<PreviewResponse>("preview_grid", {
+      // Get horizontal lines (mode 4)
+      const horizontalResult = await invoke<PreviewResponse>("preview_grid", {
         imagePath: imagePath,
         algorithm: 4,
       });
 
-      if (adaptiveResult.success && adaptiveResult.preview_image) {
-        setOverlayImage(adaptiveResult.preview_image);
+      if (horizontalResult.success && horizontalResult.preview_image) {
+        setHorizontalImage(horizontalResult.preview_image);
       }
+
+      setProcessingState({
+        stage: "dewarping",
+        progress: 40,
+        message: "Detecting vertical lines...",
+      });
+
+      // Get vertical lines (mode 5)
+      const verticalResult = await invoke<PreviewResponse>("preview_grid", {
+        imagePath: imagePath,
+        algorithm: 5,
+      });
+
+      if (verticalResult.success && verticalResult.preview_image) {
+        setVerticalImage(verticalResult.preview_image);
+      }
+
+      setProcessingState({
+        stage: "calibrating",
+        progress: 70,
+        message: "Creating combined view...",
+      });
+
+      // Get combined view (mode 6)
+      const combinedResult = await invoke<PreviewResponse>("preview_grid", {
+        imagePath: imagePath,
+        algorithm: 6,
+      });
+
+      if (combinedResult.success && combinedResult.preview_image) {
+        setCombinedImage(combinedResult.preview_image);
+      }
+
+      const hLines = horizontalResult.horizontal_lines ?? 0;
+      const vLines = verticalResult.vertical_lines ?? 0;
 
       setProcessingState({
         stage: "complete",
         progress: 100,
-        message: `Done! Horizontal lines: ${adaptiveResult.horizontal_lines ?? 0}. Press 1 for original, 2 for Adaptive-H.`,
+        message: `Done! H:${hLines} V:${vLines} | ${calibration.tempMin}°C - ${calibration.tempMax}°C, start ${calibration.startHour}:00`,
       });
 
-      setViewMode("adaptiveH");
+      setViewMode("combined");
     } catch (err) {
       setProcessingState({
         stage: "error",
@@ -75,11 +98,13 @@ export function useProcessing() {
         error: String(err),
       });
     }
-  }, [imagePath, setOriginalImage, setOverlayImage, setProcessingState, setViewMode]);
+  }, [imagePath, calibration, setOriginalImage, setHorizontalImage, setVerticalImage, setCombinedImage, setProcessingState, setViewMode]);
 
   return {
     processGridDetection,
     isProcessing,
+    calibration,
+    chartType,
   };
 }
 

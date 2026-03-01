@@ -32,9 +32,10 @@
   "calibration": {
     "time_axis": "x",
     "hours_per_chart": 24,
+    "start_hour": 7,
     "temp_axis": "y",
-    "temp_min": -10.0,
-    "temp_max": 40.0,
+    "temp_min_default": 20.0,
+    "temp_max_default": 50.0,
     "temp_major_gridlines": 10
   },
   "segment": {

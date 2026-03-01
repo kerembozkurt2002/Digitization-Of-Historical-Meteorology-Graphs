@@ -86,7 +86,7 @@ class Calibrator:
 
             # Compute temperature conversion coefficients
             temp_coeffs = self._compute_temp_coefficients(
-                h, temp_gridlines, cfg.temp_min, cfg.temp_max
+                h, temp_gridlines, cfg.temp_min_default, cfg.temp_max_default
             )
 
             # Compute confidence based on gridline detection quality
@@ -104,8 +104,8 @@ class Calibrator:
                 time_gridlines=time_gridlines,
                 temp_gridlines=temp_gridlines,
                 start_datetime=start_datetime,
-                temp_min=cfg.temp_min,
-                temp_max=cfg.temp_max,
+                temp_min=cfg.temp_min_default,
+                temp_max=cfg.temp_max_default,
                 calibration_confidence=confidence,
                 success=True,
                 message=f"Calibration successful. Time gridlines: {len(time_gridlines)}, Temp gridlines: {len(temp_gridlines)}",

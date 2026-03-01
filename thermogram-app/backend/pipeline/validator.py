@@ -145,8 +145,8 @@ class Validator:
         issues = []
         calibration_cfg = self.config.calibration if self.config else None
 
-        temp_min = calibration_cfg.temp_min if calibration_cfg else -10.0
-        temp_max = calibration_cfg.temp_max if calibration_cfg else 40.0
+        temp_min = calibration_cfg.temp_min_default if calibration_cfg else -10.0
+        temp_max = calibration_cfg.temp_max_default if calibration_cfg else 40.0
 
         for i, dp in enumerate(data_points):
             if dp.temperature < temp_min - cfg.temp_tolerance:

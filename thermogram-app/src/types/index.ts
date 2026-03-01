@@ -64,6 +64,25 @@ export interface ValidationIssue {
 
 export type ChartFormat = "daily" | "four_day" | "weekly";
 
+/**
+ * User-editable calibration settings for each chart.
+ * These values can be overridden from defaults.
+ */
+export interface CalibrationSettings {
+  tempMin: number;
+  tempMax: number;
+  startHour: number;
+}
+
+/**
+ * Default calibration values per chart type.
+ */
+export const CHART_TYPE_DEFAULTS: Record<ChartFormat, CalibrationSettings> = {
+  daily: { tempMin: 10, tempMax: 40, startHour: 7 },
+  four_day: { tempMin: 5, tempMax: 35, startHour: 12 },
+  weekly: { tempMin: 0, tempMax: 30, startHour: 12 },
+};
+
 export interface ChartMetadata {
   filename: string;
   filepath: string;
@@ -111,11 +130,9 @@ export interface ProcessingState {
 
 export type ViewMode =
   | "original"
-  | "preprocessed"
-  | "dewarped"
-  | "segmented"
-  | "overlay"
-  | "adaptiveH";
+  | "horizontal"
+  | "vertical"
+  | "combined";
 
 // ============================================================================
 // Result Types (matching backend models)

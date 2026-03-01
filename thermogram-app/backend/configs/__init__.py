@@ -69,11 +69,12 @@ class CalibrationConfig:
     # Time axis
     time_axis: str = "x"  # 'x' or 'y'
     hours_per_chart: int = 24
+    start_hour: int = 7  # Hour at leftmost vertical grid (7=daily, 12=others)
 
-    # Temperature axis
+    # Temperature axis (defaults - user can override)
     temp_axis: str = "y"  # 'x' or 'y'
-    temp_min: float = -10.0  # Celsius
-    temp_max: float = 40.0  # Celsius
+    temp_min_default: float = 10.0  # Default minimum temperature (Celsius)
+    temp_max_default: float = 40.0  # Default maximum temperature (Celsius)
     temp_major_gridlines: int = 10  # Number of major gridlines
 
 

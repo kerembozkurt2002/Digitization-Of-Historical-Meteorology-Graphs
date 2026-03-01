@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useImageStore, selectCurrentImage } from "./stores/imageStore";
 import { UploadPanel } from "./components/Sidebar/UploadPanel";
+import { CalibrationPanel } from "./components/Sidebar/CalibrationPanel";
 import { useProcessing } from "./hooks/useProcessing";
 import type { ViewMode } from "./types";
 import "./App.css";
@@ -9,6 +10,9 @@ function App() {
   const {
     imagePath,
     originalImage,
+    horizontalImage,
+    verticalImage,
+    combinedImage,
     viewMode,
     setViewMode,
     processing,
@@ -17,10 +21,7 @@ function App() {
   const currentImage = useImageStore(selectCurrentImage);
   const { processGridDetection, isProcessing } = useProcessing();
 
-  // Get overlay image availability
-  const overlayImage = useImageStore((state) => state.overlayImage);
-
-  // Keyboard shortcuts for switching views (1, 2)
+  // Keyboard shortcuts for switching views (1-4)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -35,14 +36,20 @@ function App() {
           if (originalImage) setViewMode("original");
           break;
         case "2":
-          if (overlayImage) setViewMode("adaptiveH");
+          if (horizontalImage) setViewMode("horizontal");
+          break;
+        case "3":
+          if (verticalImage) setViewMode("vertical");
+          break;
+        case "4":
+          if (combinedImage) setViewMode("combined");
           break;
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [originalImage, overlayImage, setViewMode]);
+  }, [originalImage, horizontalImage, verticalImage, combinedImage, setViewMode]);
 
   const isViewActive = (mode: ViewMode): boolean => viewMode === mode;
 
@@ -59,6 +66,8 @@ function App() {
         <aside className="sidebar">
           <UploadPanel />
 
+          <CalibrationPanel />
+
           <div className="panel">
             <h2>Process</h2>
             <button
@@ -71,23 +80,39 @@ function App() {
           </div>
 
           <div className="panel">
-            <h2>View (1-2)</h2>
+            <h2>View (1-4)</h2>
             <div className="view-buttons">
               <button
                 onClick={() => setViewMode("original")}
                 disabled={!originalImage}
                 className={`btn ${isViewActive("original") ? "btn-active" : ""}`}
-                title="Original file without any overlay"
+                title="Original image"
               >
                 1. Original
               </button>
               <button
-                onClick={() => setViewMode("adaptiveH")}
-                disabled={!overlayImage}
-                className={`btn ${isViewActive("adaptiveH") ? "btn-active" : ""}`}
-                title="Adaptive Threshold + Morphological (Horizontal)"
+                onClick={() => setViewMode("horizontal")}
+                disabled={!horizontalImage}
+                className={`btn ${isViewActive("horizontal") ? "btn-active" : ""}`}
+                title="Horizontal grid lines (green)"
               >
-                2. Adaptive-H
+                2. H-Lines
+              </button>
+              <button
+                onClick={() => setViewMode("vertical")}
+                disabled={!verticalImage}
+                className={`btn ${isViewActive("vertical") ? "btn-active" : ""}`}
+                title="Vertical grid lines (blue)"
+              >
+                3. V-Lines
+              </button>
+              <button
+                onClick={() => setViewMode("combined")}
+                disabled={!combinedImage}
+                className={`btn ${isViewActive("combined") ? "btn-active" : ""}`}
+                title="Both horizontal and vertical lines"
+              >
+                4. Combined
               </button>
             </div>
           </div>
@@ -106,10 +131,6 @@ function App() {
                 alt={viewMode}
                 className="thermogram-image"
               />
-            </div>
-          ) : imagePath ? (
-            <div className="placeholder">
-              <p>Click "Detect Grid" to process the image</p>
             </div>
           ) : (
             <div className="placeholder">

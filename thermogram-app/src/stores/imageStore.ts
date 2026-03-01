@@ -8,19 +8,25 @@ import type {
   ProcessingState,
   ChartMetadata,
   ZoomState,
+  ChartFormat,
+  CalibrationSettings,
 } from "../types";
+import { CHART_TYPE_DEFAULTS } from "../types";
 
 interface ImageState {
   // File state
   imagePath: string | null;
   metadata: ChartMetadata | null;
 
+  // Chart type and calibration
+  chartType: ChartFormat;
+  calibration: CalibrationSettings;
+
   // Image data (base64 encoded)
   originalImage: string | null;
-  preprocessedImage: string | null;
-  dewarpedImage: string | null;
-  segmentedImage: string | null;
-  overlayImage: string | null;
+  horizontalImage: string | null;
+  verticalImage: string | null;
+  combinedImage: string | null;
 
   // View settings
   viewMode: ViewMode;
@@ -32,11 +38,13 @@ interface ImageState {
   // Actions
   setImagePath: (path: string | null) => void;
   setMetadata: (metadata: ChartMetadata | null) => void;
+  setChartType: (chartType: ChartFormat) => void;
+  setCalibration: (calibration: Partial<CalibrationSettings>) => void;
+  resetCalibrationToDefaults: () => void;
   setOriginalImage: (image: string | null) => void;
-  setPreprocessedImage: (image: string | null) => void;
-  setDewarpedImage: (image: string | null) => void;
-  setSegmentedImage: (image: string | null) => void;
-  setOverlayImage: (image: string | null) => void;
+  setHorizontalImage: (image: string | null) => void;
+  setVerticalImage: (image: string | null) => void;
+  setCombinedImage: (image: string | null) => void;
   setViewMode: (mode: ViewMode) => void;
   setZoom: (zoom: Partial<ZoomState>) => void;
   resetZoom: () => void;
@@ -57,15 +65,19 @@ const initialProcessing: ProcessingState = {
   message: "Ready",
 };
 
+const initialChartType: ChartFormat = "daily";
+const initialCalibration: CalibrationSettings = { ...CHART_TYPE_DEFAULTS.daily };
+
 export const useImageStore = create<ImageState>((set) => ({
   // Initial state
   imagePath: null,
   metadata: null,
+  chartType: initialChartType,
+  calibration: initialCalibration,
   originalImage: null,
-  preprocessedImage: null,
-  dewarpedImage: null,
-  segmentedImage: null,
-  overlayImage: null,
+  horizontalImage: null,
+  verticalImage: null,
+  combinedImage: null,
   viewMode: "original",
   zoom: initialZoom,
   processing: initialProcessing,
@@ -76,25 +88,38 @@ export const useImageStore = create<ImageState>((set) => ({
       imagePath: path,
       // Clear images when path changes
       originalImage: null,
-      preprocessedImage: null,
-      dewarpedImage: null,
-      segmentedImage: null,
-      overlayImage: null,
+      horizontalImage: null,
+      verticalImage: null,
+      combinedImage: null,
       viewMode: "original",
       processing: initialProcessing,
     }),
 
   setMetadata: (metadata) => set({ metadata }),
 
+  setChartType: (chartType) =>
+    set({
+      chartType,
+      calibration: { ...CHART_TYPE_DEFAULTS[chartType] },
+    }),
+
+  setCalibration: (calibration) =>
+    set((state) => ({
+      calibration: { ...state.calibration, ...calibration },
+    })),
+
+  resetCalibrationToDefaults: () =>
+    set((state) => ({
+      calibration: { ...CHART_TYPE_DEFAULTS[state.chartType] },
+    })),
+
   setOriginalImage: (image) => set({ originalImage: image }),
 
-  setPreprocessedImage: (image) => set({ preprocessedImage: image }),
+  setHorizontalImage: (image) => set({ horizontalImage: image }),
 
-  setDewarpedImage: (image) => set({ dewarpedImage: image }),
+  setVerticalImage: (image) => set({ verticalImage: image }),
 
-  setSegmentedImage: (image) => set({ segmentedImage: image }),
-
-  setOverlayImage: (image) => set({ overlayImage: image }),
+  setCombinedImage: (image) => set({ combinedImage: image }),
 
   setViewMode: (mode) => set({ viewMode: mode }),
 
@@ -113,21 +138,21 @@ export const useImageStore = create<ImageState>((set) => ({
   clearImages: () =>
     set({
       originalImage: null,
-      preprocessedImage: null,
-      dewarpedImage: null,
-      segmentedImage: null,
-      overlayImage: null,
+      horizontalImage: null,
+      verticalImage: null,
+      combinedImage: null,
     }),
 
   reset: () =>
     set({
       imagePath: null,
       metadata: null,
+      chartType: initialChartType,
+      calibration: initialCalibration,
       originalImage: null,
-      preprocessedImage: null,
-      dewarpedImage: null,
-      segmentedImage: null,
-      overlayImage: null,
+      horizontalImage: null,
+      verticalImage: null,
+      combinedImage: null,
       viewMode: "original",
       zoom: initialZoom,
       processing: initialProcessing,
@@ -137,15 +162,12 @@ export const useImageStore = create<ImageState>((set) => ({
 // Selectors
 export const selectCurrentImage = (state: ImageState): string | null => {
   switch (state.viewMode) {
-    case "preprocessed":
-      return state.preprocessedImage;
-    case "dewarped":
-      return state.dewarpedImage;
-    case "segmented":
-      return state.segmentedImage;
-    case "overlay":
-    case "adaptiveH":
-      return state.overlayImage;
+    case "horizontal":
+      return state.horizontalImage;
+    case "vertical":
+      return state.verticalImage;
+    case "combined":
+      return state.combinedImage;
     case "original":
     default:
       return state.originalImage;

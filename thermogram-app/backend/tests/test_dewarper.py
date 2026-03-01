@@ -82,54 +82,30 @@ class TestDewarper:
 class TestHorizontalLineDetection:
     """Test cases for horizontal line detection methods."""
 
-    def test_detect_horizontal_lines_algo1(self):
-        """Test Canny+Hough algorithm."""
-        image = np.random.randint(0, 255, (200, 300, 3), dtype=np.uint8)
-        dewarper = Dewarper()
-        lines = dewarper.detect_horizontal_lines(image, algorithm=1)
-
-        assert isinstance(lines, list)
-
-    def test_detect_horizontal_lines_algo2(self):
-        """Test Vertical Gradient algorithm."""
-        image = np.random.randint(0, 255, (200, 300, 3), dtype=np.uint8)
-        dewarper = Dewarper()
-        lines = dewarper.detect_horizontal_lines(image, algorithm=2)
-
-        assert isinstance(lines, list)
-
-    def test_detect_horizontal_lines_algo3(self):
-        """Test LSD algorithm."""
-        image = np.random.randint(0, 255, (200, 300, 3), dtype=np.uint8)
-        dewarper = Dewarper()
-        lines = dewarper.detect_horizontal_lines(image, algorithm=3)
-
-        assert isinstance(lines, list)
-
-    def test_detect_horizontal_lines_algo4(self):
-        """Test Adaptive+Morphological algorithm."""
-        image = np.random.randint(0, 255, (200, 300, 3), dtype=np.uint8)
-        dewarper = Dewarper()
-        lines = dewarper.detect_horizontal_lines(image, algorithm=4)
-
-        assert isinstance(lines, list)
-
-    def test_detect_horizontal_lines_default(self):
-        """Test default algorithm selection."""
+    def test_detect_horizontal_lines(self):
+        """Test horizontal line detection."""
         image = np.random.randint(0, 255, (200, 300, 3), dtype=np.uint8)
         dewarper = Dewarper()
         lines = dewarper.detect_horizontal_lines(image)
 
         assert isinstance(lines, list)
 
+    def test_detect_vertical_lines(self):
+        """Test vertical line detection."""
+        image = np.random.randint(0, 255, (200, 300, 3), dtype=np.uint8)
+        dewarper = Dewarper()
+        polylines = dewarper.detect_vertical_lines(image)
+
+        assert isinstance(polylines, list)
+
     def test_line_format(self):
-        """Test that detected lines have correct format."""
+        """Test that detected horizontal lines have correct format."""
         # Create image with clear horizontal line
         image = np.ones((200, 300, 3), dtype=np.uint8) * 200
         image[100, :, :] = 0  # Black horizontal line
 
         dewarper = Dewarper()
-        lines = dewarper.detect_horizontal_lines(image, algorithm=1)
+        lines = dewarper.detect_horizontal_lines(image)
 
         # Each line should be [x1, y1, x2, y2]
         for line in lines:
@@ -142,21 +118,41 @@ class TestGridOverlay:
     """Test cases for grid overlay methods."""
 
     def test_create_grid_overlay_original(self):
-        """Test grid overlay with algorithm 0 (original)."""
+        """Test grid overlay with mode 0 (original)."""
         image = np.random.randint(0, 255, (200, 300, 3), dtype=np.uint8)
         dewarper = Dewarper()
-        result = dewarper.create_grid_overlay(image, algorithm=0)
+        result = dewarper.create_grid_overlay(image, mode=0)
 
         assert isinstance(result, GridOverlayResult)
         assert result.success
         assert result.horizontal_lines == 0
         assert np.array_equal(result.overlay_image, image)
 
-    def test_create_grid_overlay_with_detection(self):
-        """Test grid overlay with line detection."""
+    def test_create_grid_overlay_horizontal(self):
+        """Test grid overlay with horizontal lines (mode 4)."""
         image = np.random.randint(0, 255, (200, 300, 3), dtype=np.uint8)
         dewarper = Dewarper()
-        result = dewarper.create_grid_overlay(image, algorithm=1)
+        result = dewarper.create_grid_overlay(image, mode=4)
+
+        assert isinstance(result, GridOverlayResult)
+        assert result.success
+        assert result.overlay_image.shape == image.shape
+
+    def test_create_grid_overlay_vertical(self):
+        """Test grid overlay with vertical lines (mode 5)."""
+        image = np.random.randint(0, 255, (200, 300, 3), dtype=np.uint8)
+        dewarper = Dewarper()
+        result = dewarper.create_grid_overlay(image, mode=5)
+
+        assert isinstance(result, GridOverlayResult)
+        assert result.success
+        assert result.overlay_image.shape == image.shape
+
+    def test_create_grid_overlay_combined(self):
+        """Test grid overlay with both lines (mode 6)."""
+        image = np.random.randint(0, 255, (200, 300, 3), dtype=np.uint8)
+        dewarper = Dewarper()
+        result = dewarper.create_grid_overlay(image, mode=6)
 
         assert isinstance(result, GridOverlayResult)
         assert result.success
