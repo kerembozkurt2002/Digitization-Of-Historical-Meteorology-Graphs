@@ -20,10 +20,16 @@ export function CalibrationPanel() {
     imagePath,
     chartType,
     calibration,
+    viewMode,
+    verticalLinePositions,
     setChartType,
     setCalibration,
     resetCalibrationToDefaults,
   } = useImageStore();
+
+  // Get values with fallback
+  const curvatureValue = calibration.curvature ?? 0.5;
+  const vSpacingValue = calibration.vSpacing ?? 1.0;
 
   // Only show when an image is loaded
   if (!imagePath) {
@@ -56,6 +62,26 @@ export function CalibrationPanel() {
       setCalibration({ startHour: value });
     }
   };
+
+  // Handle curvature slider change - instant, no backend calls
+  const handleCurvatureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseFloat(e.target.value);
+    if (!isNaN(value)) {
+      setCalibration({ curvature: value });
+    }
+  };
+
+  // Handle v-spacing slider change
+  const handleVSpacingChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseFloat(e.target.value);
+    if (!isNaN(value)) {
+      setCalibration({ vSpacing: value });
+    }
+  };
+
+  // Show sliders when we have vertical line positions detected
+  const showVerticalSliders = verticalLinePositions.length > 0 &&
+    (viewMode === "vertical" || viewMode === "combined");
 
   return (
     <div className={`panel calibration-panel ${isExpanded ? "expanded" : "collapsed"}`}>
@@ -136,6 +162,52 @@ export function CalibrationPanel() {
             </div>
             <span className="field-hint">Leftmost grid line hour</span>
           </div>
+
+          {showVerticalSliders && (
+            <>
+              <div className="calibration-field curvature-field">
+                <label htmlFor="curvature">Line Curvature</label>
+                <div className="slider-container">
+                  <span className="slider-label">Straight</span>
+                  <input
+                    id="curvature"
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={curvatureValue}
+                    onChange={handleCurvatureChange}
+                    className="curvature-slider"
+                  />
+                  <span className="slider-label">Curved</span>
+                </div>
+                <span className="field-hint">
+                  Curvature: {(curvatureValue * 100).toFixed(0)}%
+                </span>
+              </div>
+
+              <div className="calibration-field curvature-field">
+                <label htmlFor="vspacing">V-Line Spacing</label>
+                <div className="slider-container">
+                  <span className="slider-label">Tighter</span>
+                  <input
+                    id="vspacing"
+                    type="range"
+                    min="0.8"
+                    max="1.2"
+                    step="0.01"
+                    value={vSpacingValue}
+                    onChange={handleVSpacingChange}
+                    className="curvature-slider"
+                  />
+                  <span className="slider-label">Wider</span>
+                </div>
+                <span className="field-hint">
+                  Spacing: {(vSpacingValue * 100).toFixed(0)}%
+                </span>
+              </div>
+            </>
+          )}
 
           <button
             onClick={resetCalibrationToDefaults}

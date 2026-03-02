@@ -121,6 +121,14 @@ class GridOverlayResult:
     horizontal_lines: int
     success: bool
     message: str
+    # Line positions for client-side rendering
+    vertical_line_positions: List[int] = field(default_factory=list)  # X positions at y=0
+    horizontal_line_positions: List[int] = field(default_factory=list)  # Y positions
+    image_height: int = 0
+    image_width: int = 0
+    # Curve template coefficients for vertical lines: x = a*y² + b*y + x0
+    curve_coeff_a: float = 0.0  # Curvature (how much it bends)
+    curve_coeff_b: float = 0.0  # Asymmetry (where the bend is centered)
 
 
 @dataclass

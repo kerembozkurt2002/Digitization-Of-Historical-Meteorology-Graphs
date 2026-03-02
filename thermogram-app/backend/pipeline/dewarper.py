@@ -48,6 +48,9 @@ class Dewarper:
         self.grid_config = config.grid_detection if config else GridDetectionConfig()
         self.debug = debug
         self.debug_images = {}
+        # Detected curve coefficients (set by detect_vertical_lines)
+        self._detected_curve_a = 0.0
+        self._detected_curve_b = 0.0
 
     def dewarp(self, image: np.ndarray) -> DewarpResult:
         """
@@ -299,7 +302,8 @@ class Dewarper:
 
     def detect_vertical_lines(
         self,
-        image: np.ndarray
+        image: np.ndarray,
+        curvature_override: Optional[float] = None
     ) -> List[List[Tuple[int, int]]]:
         """
         Detect vertical curved lines using template-based approach.
@@ -316,6 +320,8 @@ class Dewarper:
 
         Args:
             image: Input image
+            curvature_override: Manual override for curvature (0.0 = straight, 1.0 = max curve)
+                               If provided, skips auto-detection and uses this value.
 
         Returns:
             List of polylines (each polyline is list of (x, y) tuples)
@@ -388,14 +394,28 @@ class Dewarper:
             except:
                 continue
 
-        if len(valid_traces) < 2:
+        if len(valid_traces) < 2 and curvature_override is None:
             # Fallback to simple detection
             return self._fallback_vertical_detection(image, vertical_mask)
 
         # Step 4: Calculate template (average shape)
-        # The shape is defined by 'a' coefficient (curvature)
-        avg_a = np.median([t[1][0] for t in valid_traces])
-        avg_b = np.median([t[1][1] for t in valid_traces])
+        # The shape is defined by coefficients: x = a*y² + b*y + c
+        # 'a' = curvature intensity, 'b' = asymmetry (where bend is centered)
+        detected_a = np.median([t[1][0] for t in valid_traces])
+        detected_b = np.median([t[1][1] for t in valid_traces])
+
+        # Store detected coefficients for client-side rendering
+        self._detected_curve_a = float(detected_a)
+        self._detected_curve_b = float(detected_b)
+
+        if curvature_override is not None:
+            # Manual override: scale the detected curvature
+            # 0.0 = no curvature, 1.0 = full detected curvature, >1.0 = exaggerated
+            avg_a = detected_a * curvature_override
+            avg_b = detected_b * curvature_override  # Scale asymmetry proportionally
+        else:
+            avg_a = detected_a
+            avg_b = detected_b
 
         # Step 5: Analyze spacing across entire image
         full_column_sum = np.sum(vertical_mask, axis=0).astype(np.float64)
@@ -470,11 +490,13 @@ class Dewarper:
         y_mid = h / 2
 
         for target_x in all_positions:
-            # Apply template shape centered at target_x
-            # x = a*y^2 + b*y + c, we want x(y_mid) = target_x
-            # So: c = target_x - a*y_mid^2 - b*y_mid
-            x_at_mid = avg_a * y_mid**2 + avg_b * y_mid
-            x_vals = avg_a * y_full**2 + avg_b * y_full - x_at_mid + target_x
+            # Apply template shape centered at y_mid (symmetric curve)
+            # Formula: x = a * (y - y_mid)^2 + target_x
+            # This ensures:
+            # - At y = y_mid (center): x = target_x (fixed point)
+            # - At y = 0 (top): x = a * y_mid^2 + target_x
+            # - At y = h (bottom): x = a * y_mid^2 + target_x (same as top!)
+            x_vals = avg_a * (y_full - y_mid)**2 + target_x
 
             x_vals = np.clip(x_vals, 0, w - 1)
             polyline = [(int(x), int(y)) for y, x in zip(y_full, x_vals)]
@@ -538,7 +560,8 @@ class Dewarper:
     def create_grid_overlay(
         self,
         image: np.ndarray,
-        mode: int = 0
+        mode: int = 0,
+        curvature_override: Optional[float] = None
     ) -> GridOverlayResult:
         """
         Create an overlay showing detected grid lines.
@@ -550,6 +573,7 @@ class Dewarper:
                 4 = Horizontal lines only (green)
                 5 = Vertical lines only (blue)
                 6 = Both horizontal + vertical (green + blue)
+            curvature_override: Manual curvature for vertical lines (0.0=straight, 1.0=max curve)
 
         Returns:
             GridOverlayResult with overlay image
@@ -561,6 +585,10 @@ class Dewarper:
             6: "Combined"
         }
 
+        h, w = image.shape[:2]
+        v_line_positions = []
+        h_line_positions = []
+
         try:
             # Mode 0: Original image
             if mode == 0:
@@ -569,7 +597,9 @@ class Dewarper:
                     vertical_lines=0,
                     horizontal_lines=0,
                     success=True,
-                    message="Original image"
+                    message="Original image",
+                    image_height=h,
+                    image_width=w
                 )
 
             overlay = image.copy()
@@ -583,23 +613,37 @@ class Dewarper:
                 for line in horizontal_lines:
                     x1, y1, x2, y2 = line
                     cv2.line(overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)  # Green
+                    # Store Y position (average of y1 and y2)
+                    h_line_positions.append((y1 + y2) // 2)
 
             # Detect and draw vertical lines (modes 5 and 6)
             if mode in [5, 6]:
-                vertical_polylines = self.detect_vertical_lines(image)
+                vertical_polylines = self.detect_vertical_lines(image, curvature_override=curvature_override)
                 v_count = len(vertical_polylines)
                 overlay = self._draw_vertical_polylines(
                     overlay, vertical_polylines,
                     color=(255, 0, 0),  # Blue
                     thickness=2
                 )
+                # Extract X positions at y_mid (center of image) from polylines
+                y_mid = h // 2
+                for polyline in vertical_polylines:
+                    # Find the point closest to y_mid
+                    mid_point = min(polyline, key=lambda p: abs(p[1] - y_mid))
+                    v_line_positions.append(mid_point[0])
 
             return GridOverlayResult(
                 overlay_image=overlay,
                 vertical_lines=v_count,
                 horizontal_lines=h_count,
                 success=True,
-                message=f"[{mode_names.get(mode, 'Unknown')}] H:{h_count} V:{v_count}"
+                message=f"[{mode_names.get(mode, 'Unknown')}] H:{h_count} V:{v_count}",
+                vertical_line_positions=sorted(v_line_positions),
+                horizontal_line_positions=sorted(h_line_positions),
+                image_height=h,
+                image_width=w,
+                curve_coeff_a=self._detected_curve_a,
+                curve_coeff_b=self._detected_curve_b
             )
 
         except Exception as e:
@@ -608,7 +652,9 @@ class Dewarper:
                 vertical_lines=0,
                 horizontal_lines=0,
                 success=False,
-                message=f"Error creating grid overlay: {str(e)}"
+                message=f"Error creating grid overlay: {str(e)}",
+                image_height=h,
+                image_width=w
             )
 
     def create_flattened_grid(self, image: np.ndarray) -> FlattenedGridResult:

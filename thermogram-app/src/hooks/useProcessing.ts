@@ -16,6 +16,7 @@ export function useProcessing() {
     setHorizontalImage,
     setVerticalImage,
     setCombinedImage,
+    setLinePositions,
     setProcessingState,
     setViewMode,
   } = useImageStore();
@@ -54,14 +55,28 @@ export function useProcessing() {
         message: "Detecting vertical lines...",
       });
 
-      // Get vertical lines (mode 5)
+      // Get vertical lines (mode 5) - no curvature, we'll render client-side
       const verticalResult = await invoke<PreviewResponse>("preview_grid", {
         imagePath: imagePath,
         algorithm: 5,
       });
 
-      if (verticalResult.success && verticalResult.preview_image) {
-        setVerticalImage(verticalResult.preview_image);
+      if (verticalResult.success) {
+        // Store line positions and curve coefficients for client-side rendering
+        if (verticalResult.vertical_line_positions) {
+          setLinePositions({
+            vertical: verticalResult.vertical_line_positions,
+            horizontal: horizontalResult.horizontal_line_positions ?? [],
+            height: verticalResult.image_height ?? 0,
+            width: verticalResult.image_width ?? 0,
+            coeffA: verticalResult.curve_coeff_a ?? 0,
+            coeffB: verticalResult.curve_coeff_b ?? 0,
+          });
+        }
+        // Still store the preview image as fallback
+        if (verticalResult.preview_image) {
+          setVerticalImage(verticalResult.preview_image);
+        }
       }
 
       setProcessingState({
@@ -70,7 +85,7 @@ export function useProcessing() {
         message: "Creating combined view...",
       });
 
-      // Get combined view (mode 6)
+      // Get combined view (mode 6) - no curvature, we'll render client-side
       const combinedResult = await invoke<PreviewResponse>("preview_grid", {
         imagePath: imagePath,
         algorithm: 6,

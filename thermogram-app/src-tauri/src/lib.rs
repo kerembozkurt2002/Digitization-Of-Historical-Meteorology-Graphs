@@ -22,6 +22,14 @@ pub struct PreviewResponse {
     pub horizontal_lines: Option<i32>,
     pub preview_image: Option<String>,
     pub output_path: Option<String>,
+    // Line positions for client-side rendering
+    pub vertical_line_positions: Option<Vec<i32>>,
+    pub horizontal_line_positions: Option<Vec<i32>>,
+    pub image_height: Option<i32>,
+    pub image_width: Option<i32>,
+    // Curve coefficients: x = a*y² + b*y + x0
+    pub curve_coeff_a: Option<f64>,
+    pub curve_coeff_b: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -108,7 +116,7 @@ fn dewarp_image(image_path: String, output_path: Option<String>) -> Result<Dewar
 }
 
 #[tauri::command]
-fn preview_grid(image_path: String, algorithm: Option<i32>, output_path: Option<String>) -> Result<PreviewResponse, String> {
+fn preview_grid(image_path: String, algorithm: Option<i32>, output_path: Option<String>, curvature: Option<f64>) -> Result<PreviewResponse, String> {
     let algo_str = algorithm.unwrap_or(1).to_string();
     let mut args = vec!["preview", "--image", &image_path, "--algorithm", &algo_str];
 
@@ -117,6 +125,13 @@ fn preview_grid(image_path: String, algorithm: Option<i32>, output_path: Option<
         output_path_str = path.clone();
         args.push("--output");
         args.push(&output_path_str);
+    }
+
+    let curvature_str;
+    if let Some(curv) = curvature {
+        curvature_str = curv.to_string();
+        args.push("--curvature");
+        args.push(&curvature_str);
     }
 
     let output = run_python_command(args)?;

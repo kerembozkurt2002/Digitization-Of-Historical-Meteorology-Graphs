@@ -28,6 +28,15 @@ interface ImageState {
   verticalImage: string | null;
   combinedImage: string | null;
 
+  // Line positions for client-side rendering
+  verticalLinePositions: number[];
+  horizontalLinePositions: number[];
+  imageHeight: number;
+  imageWidth: number;
+  // Curve coefficients: x = a*y² + b*y + x0
+  curveCoeffA: number;
+  curveCoeffB: number;
+
   // View settings
   viewMode: ViewMode;
   zoom: ZoomState;
@@ -45,6 +54,14 @@ interface ImageState {
   setHorizontalImage: (image: string | null) => void;
   setVerticalImage: (image: string | null) => void;
   setCombinedImage: (image: string | null) => void;
+  setLinePositions: (positions: {
+    vertical: number[];
+    horizontal: number[];
+    height: number;
+    width: number;
+    coeffA: number;
+    coeffB: number;
+  }) => void;
   setViewMode: (mode: ViewMode) => void;
   setZoom: (zoom: Partial<ZoomState>) => void;
   resetZoom: () => void;
@@ -78,6 +95,12 @@ export const useImageStore = create<ImageState>((set) => ({
   horizontalImage: null,
   verticalImage: null,
   combinedImage: null,
+  verticalLinePositions: [],
+  horizontalLinePositions: [],
+  imageHeight: 0,
+  imageWidth: 0,
+  curveCoeffA: 0,
+  curveCoeffB: 0,
   viewMode: "original",
   zoom: initialZoom,
   processing: initialProcessing,
@@ -86,13 +109,13 @@ export const useImageStore = create<ImageState>((set) => ({
   setImagePath: (path) =>
     set({
       imagePath: path,
-      // Clear images when path changes
-      originalImage: null,
+      // DON'T clear originalImage - keep showing old image until new one loads
+      // Only clear the processed images
       horizontalImage: null,
       verticalImage: null,
       combinedImage: null,
       viewMode: "original",
-      processing: initialProcessing,
+      processing: { stage: "preprocessing", progress: 10, message: "Loading image..." },
     }),
 
   setMetadata: (metadata) => set({ metadata }),
@@ -120,6 +143,16 @@ export const useImageStore = create<ImageState>((set) => ({
   setVerticalImage: (image) => set({ verticalImage: image }),
 
   setCombinedImage: (image) => set({ combinedImage: image }),
+
+  setLinePositions: (positions) =>
+    set({
+      verticalLinePositions: positions.vertical,
+      horizontalLinePositions: positions.horizontal,
+      imageHeight: positions.height,
+      imageWidth: positions.width,
+      curveCoeffA: positions.coeffA,
+      curveCoeffB: positions.coeffB,
+    }),
 
   setViewMode: (mode) => set({ viewMode: mode }),
 
@@ -153,6 +186,12 @@ export const useImageStore = create<ImageState>((set) => ({
       horizontalImage: null,
       verticalImage: null,
       combinedImage: null,
+      verticalLinePositions: [],
+      horizontalLinePositions: [],
+      imageHeight: 0,
+      imageWidth: 0,
+      curveCoeffA: 0,
+      curveCoeffB: 0,
       viewMode: "original",
       zoom: initialZoom,
       processing: initialProcessing,

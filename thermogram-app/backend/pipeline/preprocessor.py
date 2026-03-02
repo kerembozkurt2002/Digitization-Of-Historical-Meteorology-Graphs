@@ -143,10 +143,11 @@ class Preprocessor:
 
     def _deskew(self, image: np.ndarray) -> Tuple[np.ndarray, float]:
         """
-        Correct image rotation by detecting horizontal lines.
+        Correct image rotation by analyzing content edges row-by-row.
 
         Thermograms may be slightly rotated due to manual scanning.
-        This detects the dominant angle of horizontal lines and corrects it.
+        This detects rotation by finding where dark content starts/ends
+        on each row and fitting a line to those edges.
 
         Args:
             image: Input image (BGR)
@@ -162,45 +163,58 @@ class Preprocessor:
         else:
             gray = image.copy()
 
-        # Edge detection
-        edges = cv2.Canny(gray, 50, 150, apertureSize=3)
+        # Sample rows across the image height
+        num_samples = 20
+        sample_rows = np.linspace(h * 0.1, h * 0.9, num_samples).astype(int)
 
-        # Detect lines using Hough transform
-        lines = cv2.HoughLinesP(
-            edges,
-            rho=1,
-            theta=np.pi / 180,
-            threshold=100,
-            minLineLength=w // 4,  # Lines should be at least 1/4 of image width
-            maxLineGap=20
-        )
+        left_edges = []
+        right_edges = []
+        dark_threshold = 240  # Pixels darker than this are "content"
 
-        if lines is None or len(lines) < 3:
-            # Not enough lines detected, return original
+        for row in sample_rows:
+            row_data = gray[row, :]
+
+            # Find first dark pixel from left (skip first 5% to avoid border artifacts)
+            start_x = int(w * 0.05)
+            end_x = int(w * 0.95)
+
+            # Left edge: first dark pixel
+            left_portion = row_data[start_x:w//2]
+            dark_indices = np.where(left_portion < dark_threshold)[0]
+            if len(dark_indices) > 0:
+                left_x = start_x + dark_indices[0]
+                left_edges.append((row, left_x))
+
+            # Right edge: last dark pixel
+            right_portion = row_data[w//2:end_x]
+            dark_indices = np.where(right_portion < dark_threshold)[0]
+            if len(dark_indices) > 0:
+                right_x = w//2 + dark_indices[-1]
+                right_edges.append((row, right_x))
+
+        # Need at least 5 points to fit reliably
+        if len(left_edges) < 5 or len(right_edges) < 5:
             if self.debug:
                 self.debug_images['deskewed'] = image.copy()
             return image, 0.0
 
-        # Calculate angles of detected lines
-        angles = []
-        for line in lines:
-            x1, y1, x2, y2 = line[0]
-            # Only consider roughly horizontal lines (angle < 15 degrees from horizontal)
-            angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
-            if abs(angle) < 15:  # Near-horizontal
-                angles.append(angle)
+        # Fit lines to edges and calculate rotation angle
+        # Slope is dx/dy, we want angle from horizontal
+        left_y = np.array([e[0] for e in left_edges])
+        left_x = np.array([e[1] for e in left_edges])
+        left_slope, _ = np.polyfit(left_y, left_x, 1)
+        left_angle = np.degrees(np.arctan(left_slope))
 
-        if len(angles) < 3:
-            # Not enough horizontal lines
-            if self.debug:
-                self.debug_images['deskewed'] = image.copy()
-            return image, 0.0
+        right_y = np.array([e[0] for e in right_edges])
+        right_x = np.array([e[1] for e in right_edges])
+        right_slope, _ = np.polyfit(right_y, right_x, 1)
+        right_angle = np.degrees(np.arctan(right_slope))
 
-        # Use median angle (robust to outliers)
-        rotation_angle = np.median(angles)
+        # Average the two edge angles
+        rotation_angle = (left_angle + right_angle) / 2
 
         # Only correct if angle is significant but not too extreme
-        if abs(rotation_angle) < 0.1:  # Less than 0.1 degree - no correction needed
+        if abs(rotation_angle) < 0.02:  # Less than 0.02 degree - negligible
             if self.debug:
                 self.debug_images['deskewed'] = image.copy()
             return image, 0.0

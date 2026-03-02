@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useImageStore, selectCurrentImage } from "./stores/imageStore";
 import { UploadPanel } from "./components/Sidebar/UploadPanel";
 import { CalibrationPanel } from "./components/Sidebar/CalibrationPanel";
+import { GridOverlay } from "./components/Workspace/GridOverlay";
 import { useProcessing } from "./hooks/useProcessing";
 import type { ViewMode } from "./types";
 import "./App.css";
@@ -13,6 +14,7 @@ function App() {
     horizontalImage,
     verticalImage,
     combinedImage,
+    verticalLinePositions,
     viewMode,
     setViewMode,
     processing,
@@ -20,6 +22,29 @@ function App() {
 
   const currentImage = useImageStore(selectCurrentImage);
   const { processGridDetection, isProcessing } = useProcessing();
+
+  // Track image dimensions for canvas overlay
+  const imageRef = useRef<HTMLImageElement>(null);
+  const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
+
+  // Update dimensions when image loads
+  const handleImageLoad = () => {
+    if (imageRef.current) {
+      setImageDimensions({
+        width: imageRef.current.clientWidth,
+        height: imageRef.current.clientHeight,
+      });
+    }
+  };
+
+  // Determine if we should use client-side rendering for vertical lines
+  const useClientSideVertical = verticalLinePositions.length > 0;
+  const showVerticalOverlay = useClientSideVertical && (viewMode === "vertical" || viewMode === "combined");
+
+  // For vertical/combined views, use original image as base when using client-side rendering
+  const baseImage = useClientSideVertical && (viewMode === "vertical" || viewMode === "combined")
+    ? (viewMode === "combined" ? horizontalImage : originalImage)
+    : currentImage;
 
   // Keyboard shortcuts for switching views (1-4)
   useEffect(() => {
@@ -124,13 +149,23 @@ function App() {
         </aside>
 
         <main className="workspace">
-          {currentImage ? (
-            <div className="image-container">
+          {baseImage ? (
+            <div className="image-container" style={{ position: "relative" }}>
               <img
-                src={`data:image/png;base64,${currentImage}`}
+                ref={imageRef}
+                src={`data:image/png;base64,${baseImage}`}
                 alt={viewMode}
                 className="thermogram-image"
+                onLoad={handleImageLoad}
               />
+              {showVerticalOverlay && imageDimensions.width > 0 && (
+                <GridOverlay
+                  width={imageDimensions.width}
+                  height={imageDimensions.height}
+                  showVertical={true}
+                  showHorizontal={false}
+                />
+              )}
             </div>
           ) : (
             <div className="placeholder">

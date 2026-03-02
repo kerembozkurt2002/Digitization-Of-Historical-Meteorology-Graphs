@@ -124,3 +124,87 @@
 .btn-secondary:hover:not(:disabled) {
   background: var(--bg-hover, #e8e8e8);
 }
+
+/* Curvature Slider */
+.curvature-field {
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-color, #ddd);
+  margin-top: 0.25rem;
+}
+
+.curvature-field label {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.updating-indicator {
+  color: var(--accent-color, #007bff);
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.slider-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.slider-label {
+  font-size: 0.625rem;
+  color: var(--text-muted, #999);
+  min-width: 3rem;
+}
+
+.slider-label:first-child {
+  text-align: right;
+}
+
+.slider-label:last-child {
+  text-align: left;
+}
+
+.curvature-slider {
+  flex: 1;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg-secondary, #e0e0e0);
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+}
+
+.curvature-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent-color, #007bff);
+  cursor: pointer;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.curvature-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent-color, #007bff);
+  cursor: pointer;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.curvature-slider:hover::-webkit-slider-thumb {
+  background: var(--accent-hover, #0056b3);
+}
+
+.curvature-slider:hover::-moz-range-thumb {
+  background: var(--accent-hover, #0056b3);
+}

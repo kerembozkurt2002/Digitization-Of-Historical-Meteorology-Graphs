@@ -13,6 +13,14 @@ export interface PreviewResponse {
   vertical_lines?: number;
   horizontal_lines?: number;
   preview_image?: string;
+  // Line positions for client-side rendering
+  vertical_line_positions?: number[];
+  horizontal_line_positions?: number[];
+  image_height?: number;
+  image_width?: number;
+  // Curve coefficients: x = a*y² + b*y + x0
+  curve_coeff_a?: number;
+  curve_coeff_b?: number;
 }
 
 export interface DewarpResponse {
@@ -72,15 +80,17 @@ export interface CalibrationSettings {
   tempMin: number;
   tempMax: number;
   startHour: number;
+  curvature: number; // 0.0 = straight lines, 1.0 = full detected curvature
+  vSpacing: number; // 1.0 = detected spacing, <1 = tighter, >1 = wider
 }
 
 /**
  * Default calibration values per chart type.
  */
 export const CHART_TYPE_DEFAULTS: Record<ChartFormat, CalibrationSettings> = {
-  daily: { tempMin: 10, tempMax: 40, startHour: 7 },
-  four_day: { tempMin: 5, tempMax: 35, startHour: 12 },
-  weekly: { tempMin: 0, tempMax: 30, startHour: 12 },
+  daily: { tempMin: 10, tempMax: 40, startHour: 7, curvature: 0.5, vSpacing: 1.0 },
+  four_day: { tempMin: 5, tempMax: 35, startHour: 12, curvature: 0.5, vSpacing: 1.0 },
+  weekly: { tempMin: 0, tempMax: 30, startHour: 12, curvature: 0.5, vSpacing: 1.0 },
 };
 
 export interface ChartMetadata {

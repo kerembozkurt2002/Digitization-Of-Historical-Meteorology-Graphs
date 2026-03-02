@@ -17,6 +17,7 @@ import cv2
 import numpy as np
 
 from pipeline.dewarper import Dewarper
+from pipeline.preprocessor import Preprocessor
 from utils.image_utils import load_image, encode_image_base64, save_image
 
 
@@ -85,6 +86,7 @@ def cmd_preview(args):
     """Generate a preview with detected grid lines using specified algorithm."""
     image_path = args.image
     algorithm = getattr(args, 'algorithm', 1)
+    curvature = getattr(args, 'curvature', None)
 
     if not os.path.exists(image_path):
         result = {
@@ -105,15 +107,27 @@ def cmd_preview(args):
             print(json.dumps(result))
             return 1
 
+        # Only apply deskew (rotation correction) for preview - keep original quality
+        preprocessor = Preprocessor()
+        deskewed_image, rotation_angle = preprocessor._deskew(preprocessor._normalize(image))
+
         dewarper = Dewarper(debug=False)
-        overlay_result = dewarper.create_grid_overlay(image, algorithm)
+        overlay_result = dewarper.create_grid_overlay(deskewed_image, algorithm, curvature_override=curvature)
 
         response = {
             "success": overlay_result.success,
             "vertical_lines": overlay_result.vertical_lines,
             "horizontal_lines": overlay_result.horizontal_lines,
             "preview_image": encode_image_base64(overlay_result.overlay_image),
-            "message": overlay_result.message
+            "message": overlay_result.message,
+            # Line positions for client-side rendering (convert numpy int64 to Python int)
+            "vertical_line_positions": [int(x) for x in overlay_result.vertical_line_positions],
+            "horizontal_line_positions": [int(y) for y in overlay_result.horizontal_line_positions],
+            "image_height": int(overlay_result.image_height),
+            "image_width": int(overlay_result.image_width),
+            # Curve coefficients for vertical lines: x = a*y² + b*y + x0
+            "curve_coeff_a": float(overlay_result.curve_coeff_a),
+            "curve_coeff_b": float(overlay_result.curve_coeff_b)
         }
 
         if args.output:
@@ -298,6 +312,8 @@ def main():
     preview_parser.add_argument('--output', '-o', help='Path to save preview image')
     preview_parser.add_argument('--algorithm', '-a', type=int, default=1,
                                 help='Algorithm: 1=Canny+Hough, 2=VerticalGradient, 3=LSD, 4=Adaptive+Morphological')
+    preview_parser.add_argument('--curvature', '-c', type=float, default=None,
+                                help='Vertical line curvature override (0.0=straight, 1.0=max curve)')
     preview_parser.set_defaults(func=cmd_preview)
 
     # Flattened grid command
