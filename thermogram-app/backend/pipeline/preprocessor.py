@@ -56,13 +56,16 @@ class Preprocessor:
             # Step 1: Normalize
             normalized = self._normalize(image)
 
-            # Step 2: Denoise
-            denoised = self._denoise(normalized)
+            # Step 2: Deskew (rotation correction)
+            deskewed, rotation_angle = self._deskew(normalized)
 
-            # Step 3: Enhance contrast
+            # Step 3: Denoise
+            denoised = self._denoise(deskewed)
+
+            # Step 4: Enhance contrast
             enhanced = self._enhance_contrast(denoised)
 
-            # Step 4: Detect ROI (optional)
+            # Step 5: Detect ROI (optional)
             roi_bounds = self._detect_roi(enhanced)
 
             # Create grayscale version
@@ -137,6 +140,104 @@ class Preprocessor:
             self.debug_images['normalized'] = image.copy()
 
         return image
+
+    def _deskew(self, image: np.ndarray) -> Tuple[np.ndarray, float]:
+        """
+        Correct image rotation by detecting horizontal lines.
+
+        Thermograms may be slightly rotated due to manual scanning.
+        This detects the dominant angle of horizontal lines and corrects it.
+
+        Args:
+            image: Input image (BGR)
+
+        Returns:
+            Tuple of (deskewed image, rotation angle in degrees)
+        """
+        h, w = image.shape[:2]
+
+        # Convert to grayscale
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image.copy()
+
+        # Edge detection
+        edges = cv2.Canny(gray, 50, 150, apertureSize=3)
+
+        # Detect lines using Hough transform
+        lines = cv2.HoughLinesP(
+            edges,
+            rho=1,
+            theta=np.pi / 180,
+            threshold=100,
+            minLineLength=w // 4,  # Lines should be at least 1/4 of image width
+            maxLineGap=20
+        )
+
+        if lines is None or len(lines) < 3:
+            # Not enough lines detected, return original
+            if self.debug:
+                self.debug_images['deskewed'] = image.copy()
+            return image, 0.0
+
+        # Calculate angles of detected lines
+        angles = []
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+            # Only consider roughly horizontal lines (angle < 15 degrees from horizontal)
+            angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
+            if abs(angle) < 15:  # Near-horizontal
+                angles.append(angle)
+
+        if len(angles) < 3:
+            # Not enough horizontal lines
+            if self.debug:
+                self.debug_images['deskewed'] = image.copy()
+            return image, 0.0
+
+        # Use median angle (robust to outliers)
+        rotation_angle = np.median(angles)
+
+        # Only correct if angle is significant but not too extreme
+        if abs(rotation_angle) < 0.1:  # Less than 0.1 degree - no correction needed
+            if self.debug:
+                self.debug_images['deskewed'] = image.copy()
+            return image, 0.0
+
+        if abs(rotation_angle) > 10:  # More than 10 degrees - probably wrong detection
+            if self.debug:
+                self.debug_images['deskewed'] = image.copy()
+            return image, 0.0
+
+        # Rotate image to correct the skew
+        center = (w // 2, h // 2)
+        rotation_matrix = cv2.getRotationMatrix2D(center, rotation_angle, 1.0)
+
+        # Calculate new image size to avoid cropping
+        cos = np.abs(rotation_matrix[0, 0])
+        sin = np.abs(rotation_matrix[0, 1])
+        new_w = int(h * sin + w * cos)
+        new_h = int(h * cos + w * sin)
+
+        # Adjust rotation matrix for new size
+        rotation_matrix[0, 2] += (new_w - w) / 2
+        rotation_matrix[1, 2] += (new_h - h) / 2
+
+        # Apply rotation with white background
+        deskewed = cv2.warpAffine(
+            image,
+            rotation_matrix,
+            (new_w, new_h),
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=(255, 255, 255)
+        )
+
+        if self.debug:
+            self.debug_images['deskewed'] = deskewed.copy()
+            self.debug_images['rotation_angle'] = rotation_angle
+
+        return deskewed, rotation_angle
 
     def _denoise(self, image: np.ndarray) -> np.ndarray:
         """

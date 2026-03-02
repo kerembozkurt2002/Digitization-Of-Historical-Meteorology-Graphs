@@ -416,11 +416,11 @@ class Dewarper:
             if not merged_peaks or x - merged_peaks[-1] >= 8:
                 merged_peaks.append(x)
 
-        # Step 6: Find most common spacing
+        # Step 6: Find most common spacing (use float for precision)
         if len(merged_peaks) >= 3:
-            gaps = np.diff(merged_peaks)
+            gaps = np.diff(merged_peaks).astype(float)
 
-            # Histogram of gaps
+            # Histogram of gaps (rounded for counting)
             gap_hist = {}
             for g in gaps:
                 key = int(round(g))
@@ -429,26 +429,38 @@ class Dewarper:
 
             if gap_hist:
                 # Find the most frequent gap
-                grid_spacing = max(gap_hist.items(), key=lambda x: x[1])[0]
+                most_common_key = max(gap_hist.items(), key=lambda x: x[1])[0]
+                # Get precise average of gaps close to this value
+                close_gaps = [g for g in gaps if abs(g - most_common_key) < 5]
+                grid_spacing = np.mean(close_gaps) if close_gaps else float(most_common_key)
             else:
-                grid_spacing = int(np.median(gaps))
+                grid_spacing = np.median(gaps)
         else:
-            grid_spacing = 32  # Fallback
+            grid_spacing = 32.0  # Fallback
 
-        # Step 7: Find best reference point (a strong peak near center)
-        center_peaks = [(x, abs(x - w/2)) for x in merged_peaks]
-        center_peaks.sort(key=lambda p: p[1])
-        ref_x = center_peaks[0][0] if center_peaks else w // 2
+        # Step 7: Use multiple anchor points for better alignment
+        # Find strong peaks across the image (left, center, right)
+        left_peaks = [x for x in merged_peaks if x < w * 0.3]
+        center_peaks = [x for x in merged_peaks if w * 0.3 <= x <= w * 0.7]
+        right_peaks = [x for x in merged_peaks if x > w * 0.7]
 
-        # Step 8: Generate uniform grid with detected spacing
+        # Use center peak as primary reference
+        if center_peaks:
+            ref_x = center_peaks[len(center_peaks) // 2]
+        elif merged_peaks:
+            ref_x = merged_peaks[len(merged_peaks) // 2]
+        else:
+            ref_x = w // 2
+
+        # Step 8: Generate grid with precise spacing (float arithmetic)
         all_positions = []
-        x = ref_x
+        x = float(ref_x)
         while x >= 0:
-            all_positions.append(int(x))
+            all_positions.append(int(round(x)))
             x -= grid_spacing
-        x = ref_x + grid_spacing
+        x = float(ref_x) + grid_spacing
         while x < w:
-            all_positions.append(int(x))
+            all_positions.append(int(round(x)))
             x += grid_spacing
         all_positions = sorted(all_positions)
 
