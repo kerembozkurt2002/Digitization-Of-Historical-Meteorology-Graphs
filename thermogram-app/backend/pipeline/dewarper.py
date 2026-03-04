@@ -215,7 +215,14 @@ class Dewarper:
 
     def detect_horizontal_lines(self, image: np.ndarray) -> List[np.ndarray]:
         """
-        Detect horizontal lines using Adaptive Threshold + Morphological Operations.
+        Detect horizontal lines using multiple combined approaches.
+
+        Algorithm combines:
+        1. GREEN color filter (grid lines are green)
+        2. Margin exclusion (skip left/right edges with numbers)
+        3. HoughLinesP for line segment detection
+        4. Row projection on filtered region
+        5. Expected spacing inference
 
         Args:
             image: Input image
@@ -225,49 +232,217 @@ class Dewarper:
         """
         h, w = image.shape[:2]
 
-        if len(image.shape) == 3:
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = image.copy()
+        # Define analysis region (exclude margins with numbers/text)
+        margin_left = int(w * 0.08)   # Skip leftmost 8%
+        margin_right = int(w * 0.02)  # Skip rightmost 2%
+        analysis_region = image[:, margin_left:w - margin_right]
+        region_w = analysis_region.shape[1]
 
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        detected_lines = set()  # Use set to avoid duplicates
+
+        if len(image.shape) == 3:
+            # ============================================================
+            # METHOD 1: Color Filter (for colored grids - green OR orange)
+            # ============================================================
+            hsv = cv2.cvtColor(analysis_region, cv2.COLOR_BGR2HSV)
+
+            # Green color range (H: 35-85 covers yellow-green to green-cyan)
+            lower_green = np.array([35, 40, 40])
+            upper_green = np.array([85, 255, 255])
+            green_mask = cv2.inRange(hsv, lower_green, upper_green)
+
+            # Orange/Brown color range (H: 5-25 covers orange to brown)
+            lower_orange = np.array([5, 50, 50])
+            upper_orange = np.array([25, 255, 200])
+            orange_mask = cv2.inRange(hsv, lower_orange, upper_orange)
+
+            # Red color range (H: 0-10 and 170-180 for red hues)
+            lower_red1 = np.array([0, 50, 50])
+            upper_red1 = np.array([10, 255, 200])
+            red_mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+
+            lower_red2 = np.array([170, 50, 50])
+            upper_red2 = np.array([180, 255, 200])
+            red_mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+
+            # Combine all grid color masks
+            grid_color_mask = cv2.bitwise_or(green_mask, orange_mask)
+            grid_color_mask = cv2.bitwise_or(grid_color_mask, red_mask1)
+            grid_color_mask = cv2.bitwise_or(grid_color_mask, red_mask2)
+
+            # Apply horizontal morphology
+            kernel_h = np.ones((1, region_w // 15), np.uint8)
+            color_horizontal = cv2.morphologyEx(grid_color_mask, cv2.MORPH_OPEN, kernel_h)
+
+            # Close gaps
+            kernel_close = np.ones((1, 20), np.uint8)
+            color_horizontal = cv2.morphologyEx(color_horizontal, cv2.MORPH_CLOSE, kernel_close)
+
+            # Row projection on color mask
+            color_row_sum = np.sum(color_horizontal, axis=1).astype(np.float64)
+            if np.max(color_row_sum) > 0:
+                color_row_sum = color_row_sum / np.max(color_row_sum)
+
+                # Find peaks
+                for y in range(5, h - 5):
+                    if color_row_sum[y] > 0.3:  # 30% threshold
+                        window = color_row_sum[max(0, y-5):min(h, y+6)]
+                        if color_row_sum[y] >= np.max(window) * 0.95:
+                            detected_lines.add(y)
+
+            # ============================================================
+            # METHOD 2: HoughLinesP on color mask
+            # ============================================================
+            edges = cv2.Canny(grid_color_mask, 50, 150)
+            lines = cv2.HoughLinesP(
+                edges,
+                rho=1,
+                theta=np.pi / 180,
+                threshold=50,
+                minLineLength=region_w // 3,  # At least 1/3 of region width
+                maxLineGap=20
+            )
+
+            if lines is not None:
+                for line in lines:
+                    x1, y1, x2, y2 = line[0]
+                    # Check if approximately horizontal (angle < 5 degrees)
+                    if abs(y2 - y1) < abs(x2 - x1) * 0.087:  # tan(5°) ≈ 0.087
+                        y_avg = (y1 + y2) // 2
+                        detected_lines.add(y_avg)
+
+            gray = cv2.cvtColor(analysis_region, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = analysis_region.copy()
+
+        # ============================================================
+        # METHOD 3: Intensity-based detection (primary for faded grids)
+        # ============================================================
+        # Very aggressive contrast enhancement for faded images
+        clahe = cv2.createCLAHE(clipLimit=5.0, tileGridSize=(4, 4))
         enhanced = clahe.apply(gray)
 
-        binary_list = []
-        for block_size in [5, 7, 9, 11, 13, 15, 17]:
-            for c_value in [1, 2, 3]:
-                binary1 = cv2.adaptiveThreshold(
+        # Multiple adaptive threshold parameters for robustness
+        binary_combined = np.zeros_like(gray)
+        for block_size in [7, 11, 15, 21]:
+            for c_val in [1, 2, 3, 4]:
+                binary = cv2.adaptiveThreshold(
                     enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                    cv2.THRESH_BINARY_INV, block_size, c_value
+                    cv2.THRESH_BINARY_INV, block_size, c_val
                 )
-                binary2 = cv2.adaptiveThreshold(
-                    enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                    cv2.THRESH_BINARY, block_size, c_value
-                )
-                binary_list.extend([binary1, binary2])
+                binary_combined = cv2.bitwise_or(binary_combined, binary)
 
-        horizontal_lines = []
-        for kernel_width in [w // 50, w // 40, w // 30, w // 20, w // 15]:
-            kernel_h = np.ones((1, max(5, kernel_width)), np.uint8)
+        # Also try Sobel gradient for edge detection
+        sobel_x = cv2.Sobel(enhanced, cv2.CV_64F, 0, 1, ksize=3)
+        sobel_abs = np.abs(sobel_x)
+        sobel_norm = (sobel_abs / sobel_abs.max() * 255).astype(np.uint8)
+        _, sobel_binary = cv2.threshold(sobel_norm, 30, 255, cv2.THRESH_BINARY)
+        binary_combined = cv2.bitwise_or(binary_combined, sobel_binary)
 
-            for binary in binary_list:
-                horizontal_mask = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel_h)
-                row_sum = np.sum(horizontal_mask, axis=1)
+        # Horizontal morphology (narrower kernel for finer lines)
+        kernel_h = np.ones((1, region_w // 30), np.uint8)
+        horizontal_mask = cv2.morphologyEx(binary_combined, cv2.MORPH_OPEN, kernel_h)
 
-                if np.max(row_sum) == 0:
-                    continue
+        # Row projection
+        row_sum = np.sum(horizontal_mask, axis=1).astype(np.float64)
+        if np.max(row_sum) > 0:
+            row_sum = row_sum / np.max(row_sum)
 
-                window = 12
-                for y in range(h):
-                    start = max(0, y - window)
-                    end = min(h, y + window + 1)
-                    local_max = np.max(row_sum[start:end])
-                    local_mean = np.mean(row_sum[start:end])
+            for y in range(5, h - 5):
+                if row_sum[y] > 0.4:  # 40% threshold
+                    window = row_sum[max(0, y-5):min(h, y+6)]
+                    if row_sum[y] >= np.max(window) * 0.95:
+                        detected_lines.add(y)
 
-                    if row_sum[y] >= local_max * 0.9 and row_sum[y] > local_mean * 1.2:
-                        horizontal_lines.append(y)
+        # ============================================================
+        # METHOD 4: HoughLinesP on intensity mask
+        # ============================================================
+        edges_gray = cv2.Canny(horizontal_mask, 50, 150)
+        lines_gray = cv2.HoughLinesP(
+            edges_gray,
+            rho=1,
+            theta=np.pi / 180,
+            threshold=30,
+            minLineLength=region_w // 4,
+            maxLineGap=30
+        )
 
-        return self._group_and_create_lines(horizontal_lines, w, group_distance=4)
+        if lines_gray is not None:
+            for line in lines_gray:
+                x1, y1, x2, y2 = line[0]
+                if abs(y2 - y1) < abs(x2 - x1) * 0.087:
+                    y_avg = (y1 + y2) // 2
+                    detected_lines.add(y_avg)
+
+        # ============================================================
+        # POST-PROCESSING: Merge nearby lines and filter
+        # ============================================================
+        if not detected_lines:
+            return []
+
+        # Sort all detected y positions
+        all_y = sorted(detected_lines)
+
+        # Group nearby lines (within 10 pixels) - compare to group start
+        min_line_spacing = 10
+        grouped = []
+        current_group = [all_y[0]]
+
+        for y in all_y[1:]:
+            # Compare to the START of the current group (not the last element)
+            if y - current_group[0] <= min_line_spacing:
+                current_group.append(y)
+            else:
+                # Take median of group
+                grouped.append(int(np.median(current_group)))
+                current_group = [y]
+
+        grouped.append(int(np.median(current_group)))
+
+        # ============================================================
+        # METHOD 5: Infer missing lines using expected spacing
+        # ============================================================
+        if len(grouped) >= 3:
+            # Calculate most common spacing
+            gaps = np.diff(grouped)
+            if len(gaps) > 0:
+                # Find spacing that appears most frequently (within tolerance)
+                gap_counts = {}
+                for g in gaps:
+                    # Round to nearest 5 for grouping
+                    key = round(g / 5) * 5
+                    if 15 <= key <= 100:  # Minimum 15px expected spacing
+                        gap_counts[key] = gap_counts.get(key, 0) + 1
+
+                if gap_counts:
+                    expected_spacing = max(gap_counts.items(), key=lambda x: x[1])[0]
+
+                    # Fill in missing lines if gap is ~2x expected spacing
+                    final_lines = [grouped[0]]
+                    for i in range(1, len(grouped)):
+                        gap = grouped[i] - final_lines[-1]
+                        if gap > expected_spacing * 1.7:
+                            # Insert intermediate lines
+                            num_missing = round(gap / expected_spacing) - 1
+                            for j in range(1, num_missing + 1):
+                                inferred_y = final_lines[-1] + int(j * gap / (num_missing + 1))
+                                # Only add if not too close to existing lines
+                                if all(abs(inferred_y - existing) >= min_line_spacing for existing in final_lines):
+                                    final_lines.append(inferred_y)
+                        final_lines.append(grouped[i])
+
+                    grouped = sorted(final_lines)
+
+        # Final deduplication: remove lines that are too close
+        grouped = sorted(set(grouped))
+        if len(grouped) > 1:
+            final_grouped = [grouped[0]]
+            for y in grouped[1:]:
+                if y - final_grouped[-1] >= min_line_spacing:
+                    final_grouped.append(y)
+            grouped = final_grouped
+
+        return [np.array([0, y, w - 1, y]) for y in grouped]
 
     def _group_and_create_lines(
         self,
