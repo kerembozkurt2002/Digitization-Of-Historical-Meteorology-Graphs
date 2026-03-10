@@ -8,6 +8,7 @@ import numpy as np
 import time
 from typing import List, Optional, Tuple
 from datetime import datetime, timedelta
+from scipy.signal import savgol_filter
 
 from models import (
     DigitizeResult,
@@ -106,6 +107,11 @@ class Digitizer:
             # Sample from 0 to image_width
             sample_positions = np.arange(0, image_width, interval_pixels)
 
+            # First pass: collect all y values (with interpolation)
+            collected_x = []
+            collected_y = []
+            collected_interpolated = []
+
             for x_pixel in sample_positions:
                 x_int = int(round(x_pixel))
 
@@ -116,6 +122,25 @@ class Digitizer:
 
                 if y_pixel is None:
                     continue
+
+                collected_x.append(x_int)
+                collected_y.append(y_pixel)
+                collected_interpolated.append(is_interpolated)
+
+            # Apply Savitzky-Golay smoothing if enabled
+            if cfg.smoothing_enabled and len(collected_y) > 0:
+                y_array = np.array(collected_y)
+                smoothed_y = self._apply_smoothing(
+                    y_array,
+                    cfg.savgol_window_length,
+                    cfg.savgol_polyorder
+                )
+                collected_y = smoothed_y.tolist()
+
+            # Second pass: create data points from (possibly smoothed) y values
+            for i, x_int in enumerate(collected_x):
+                y_pixel = collected_y[i]
+                is_interpolated = collected_interpolated[i]
 
                 if is_interpolated:
                     interpolated_count += 1
@@ -320,6 +345,61 @@ class Digitizer:
             'mean': round(np.mean(temperatures), 2),
             'std': round(np.std(temperatures), 2)
         }
+
+    def _apply_smoothing(
+        self,
+        y_values: np.ndarray,
+        window_length: int,
+        polyorder: int
+    ) -> np.ndarray:
+        """
+        Apply Savitzky-Golay smoothing to y values.
+
+        Args:
+            y_values: Array of y values (may contain NaN)
+            window_length: Filter window length (must be odd)
+            polyorder: Polynomial order
+
+        Returns:
+            Smoothed y values
+        """
+        # Handle edge cases
+        if len(y_values) < window_length:
+            # Not enough data points, return original
+            return y_values
+
+        # Ensure window_length is odd
+        if window_length % 2 == 0:
+            window_length += 1
+
+        # Ensure polyorder is less than window_length
+        if polyorder >= window_length:
+            polyorder = window_length - 1
+
+        # Handle NaN values by interpolating first
+        valid_mask = ~np.isnan(y_values)
+        if not np.any(valid_mask):
+            return y_values
+
+        # Interpolate to fill NaN gaps
+        x_all = np.arange(len(y_values))
+        x_valid = x_all[valid_mask]
+        y_valid = y_values[valid_mask]
+
+        if len(y_valid) < window_length:
+            return y_values
+
+        # Interpolate missing values
+        y_interpolated = np.interp(x_all, x_valid, y_valid)
+
+        # Apply Savitzky-Golay filter
+        try:
+            y_smoothed = savgol_filter(y_interpolated, window_length, polyorder)
+        except ValueError:
+            # If filter fails, return interpolated values
+            return y_interpolated
+
+        return y_smoothed
 
     def _create_empty_result(self, start_time: float, message: str) -> DigitizeResult:
         """Create an empty/failed result."""

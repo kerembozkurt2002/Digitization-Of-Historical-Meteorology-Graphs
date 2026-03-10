@@ -18,6 +18,11 @@ import numpy as np
 
 from pipeline.dewarper import Dewarper
 from pipeline.preprocessor import Preprocessor
+from pipeline.template_matcher import TemplateMatcher
+from pipeline.segmenter import Segmenter
+from pipeline.digitizer import Digitizer
+from pipeline.calibrator import Calibrator
+from configs import load_config, SegmentConfig, DigitizeConfig, ChartConfig
 from utils.image_utils import load_image, encode_image_base64, save_image
 
 
@@ -246,6 +251,206 @@ def cmd_straightened_grid(args):
         return 1
 
 
+def cmd_match_template(args):
+    """Find '10' labels in image using template matching."""
+    image_path = args.image
+
+    if not os.path.exists(image_path):
+        result = {
+            "success": False,
+            "error": f"Image file not found: {image_path}"
+        }
+        print(json.dumps(result))
+        return 1
+
+    try:
+        try:
+            image = load_image(image_path)
+        except ValueError as e:
+            result = {
+                "success": False,
+                "error": str(e)
+            }
+            print(json.dumps(result))
+            return 1
+
+        # Apply deskew preprocessing first
+        preprocessor = Preprocessor()
+        deskewed_image, _ = preprocessor._deskew(preprocessor._normalize(image))
+
+        # Run template matching
+        matcher = TemplateMatcher()
+        match_result = matcher.match(deskewed_image)
+
+        response = {
+            "success": match_result.success,
+            "message": match_result.message,
+            "match_count": len(match_result.boxes),
+            "boxes": [{"x": b[0], "y": b[1], "w": b[2], "h": b[3]} for b in match_result.boxes],
+            "match_image": encode_image_base64(match_result.matched_image),
+            "calibration_line_y": match_result.calibration_line_y
+        }
+
+        if args.output:
+            save_image(match_result.matched_image, args.output)
+            response["output_path"] = args.output
+
+        print(json.dumps(response))
+        return 0
+
+    except Exception as e:
+        result = {
+            "success": False,
+            "error": str(e)
+        }
+        print(json.dumps(result))
+        return 1
+
+
+def cmd_process(args):
+    """Process a thermogram image with specified method and output CSV."""
+    image_path = args.image
+    method = getattr(args, 'method', 'hsv')
+    smooth = getattr(args, 'smooth', False)
+    savgol_window = getattr(args, 'savgol_window', 11)
+    savgol_order = getattr(args, 'savgol_order', 3)
+    output_path = getattr(args, 'output', None)
+
+    if not os.path.exists(image_path):
+        result = {
+            "success": False,
+            "error": f"Image file not found: {image_path}"
+        }
+        print(json.dumps(result))
+        return 1
+
+    try:
+        # Load image
+        try:
+            image = load_image(image_path)
+        except ValueError as e:
+            result = {
+                "success": False,
+                "error": str(e)
+            }
+            print(json.dumps(result))
+            return 1
+
+        # Preprocess: deskew
+        preprocessor = Preprocessor()
+        deskewed_image, rotation_angle = preprocessor._deskew(preprocessor._normalize(image))
+
+        # Create config with specified method and smoothing settings
+        config = load_config('daily')
+
+        # Update segment config
+        config.segment.method = method
+        if method == 'br_subtract':
+            # B-R method defaults are already set in config
+
+            pass
+
+        # Update digitize config
+        config.digitize.smoothing_enabled = smooth
+        config.digitize.savgol_window_length = savgol_window
+        config.digitize.savgol_polyorder = savgol_order
+
+        # Run segmentation
+        segmenter = Segmenter(config=config, debug=False)
+        segment_result = segmenter.segment(deskewed_image)
+
+        if not segment_result.success:
+            result = {
+                "success": False,
+                "error": f"Segmentation failed: {segment_result.message}",
+                "method": method
+            }
+            print(json.dumps(result))
+            return 1
+
+        # Run calibration (basic calibration for now)
+        calibrator = Calibrator(config=config, debug=False)
+        h, w = deskewed_image.shape[:2]
+        calibration_result = calibrator.calibrate(
+            deskewed_image,
+            vertical_lines=None,
+            horizontal_lines=None
+        )
+
+        # Run digitization
+        digitizer = Digitizer(config=config, debug=False)
+        digitize_result = digitizer.digitize(
+            segments=segment_result.segments,
+            calibration=calibration_result,
+            image_width=w
+        )
+
+        if not digitize_result.success:
+            result = {
+                "success": False,
+                "error": f"Digitization failed: {digitize_result.message}",
+                "method": method
+            }
+            print(json.dumps(result))
+            return 1
+
+        # Output results
+        response = {
+            "success": True,
+            "method": method,
+            "smoothing_enabled": smooth,
+            "total_points": digitize_result.total_samples,
+            "interpolated_points": digitize_result.interpolated_samples,
+            "temp_min": digitize_result.temp_min,
+            "temp_max": digitize_result.temp_max,
+            "temp_mean": digitize_result.temp_mean,
+            "temp_std": digitize_result.temp_std,
+            "segment_message": segment_result.message,
+            "digitize_message": digitize_result.message
+        }
+
+        # Save CSV if output specified
+        if output_path:
+            import csv
+            with open(output_path, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['datetime', 'temperature', 'x_pixel', 'y_pixel', 'confidence', 'is_interpolated'])
+                for dp in digitize_result.data_points:
+                    writer.writerow([
+                        dp.datetime,
+                        dp.temperature,
+                        dp.x_pixel,
+                        dp.y_pixel,
+                        dp.confidence,
+                        dp.is_added
+                    ])
+            response["output_path"] = output_path
+
+        # Include data points in JSON response
+        response["data_points"] = [
+            {
+                "datetime": dp.datetime,
+                "temperature": dp.temperature,
+                "x_pixel": dp.x_pixel,
+                "y_pixel": dp.y_pixel,
+                "confidence": dp.confidence,
+                "is_interpolated": dp.is_added
+            }
+            for dp in digitize_result.data_points
+        ]
+
+        print(json.dumps(response))
+        return 0
+
+    except Exception as e:
+        result = {
+            "success": False,
+            "error": str(e)
+        }
+        print(json.dumps(result))
+        return 1
+
+
 def cmd_health(args):
     """Health check command."""
     # Import all pipeline stages to verify they load
@@ -327,6 +532,26 @@ def main():
     straightened_parser.add_argument('--image', '-i', required=True, help='Path to input image')
     straightened_parser.add_argument('--output', '-o', help='Path to save straightened grid image')
     straightened_parser.set_defaults(func=cmd_straightened_grid)
+
+    # Match template command
+    match_parser = subparsers.add_parser('match-template', help='Find 10 labels using template matching')
+    match_parser.add_argument('--image', '-i', required=True, help='Path to input image')
+    match_parser.add_argument('--output', '-o', help='Path to save matched image')
+    match_parser.set_defaults(func=cmd_match_template)
+
+    # Process command (B-R subtraction curve extraction)
+    process_parser = subparsers.add_parser('process', help='Process thermogram with curve extraction')
+    process_parser.add_argument('--image', '-i', required=True, help='Path to input image')
+    process_parser.add_argument('--method', '-m', choices=['hsv', 'br_subtract'], default='hsv',
+                                help='Segmentation method: hsv (original) or br_subtract (B-R channel subtraction)')
+    process_parser.add_argument('--smooth', '-s', action='store_true',
+                                help='Enable Savitzky-Golay smoothing')
+    process_parser.add_argument('--savgol-window', type=int, default=11,
+                                help='Savitzky-Golay window length (odd number, default: 11)')
+    process_parser.add_argument('--savgol-order', type=int, default=3,
+                                help='Savitzky-Golay polynomial order (default: 3)')
+    process_parser.add_argument('--output', '-o', help='Path to save output CSV')
+    process_parser.set_defaults(func=cmd_process)
 
     # Health check command
     health_parser = subparsers.add_parser('health', help='Health check')

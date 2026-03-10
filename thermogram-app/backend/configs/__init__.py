@@ -81,7 +81,10 @@ class CalibrationConfig:
 @dataclass
 class SegmentConfig:
     """Segmentation stage configuration."""
-    # Curve color detection (HSV ranges)
+    # Segmentation method: "hsv" (original) or "br_subtract" (B-R channel subtraction)
+    method: str = "hsv"
+
+    # Curve color detection (HSV ranges) - used by "hsv" method
     curve_hue_min: int = 0
     curve_hue_max: int = 180
     curve_sat_min: int = 0
@@ -92,6 +95,14 @@ class SegmentConfig:
     # Morphological operations
     curve_kernel_size: int = 3
     min_curve_length: int = 100
+
+    # B-R channel subtraction parameters - used by "br_subtract" method
+    br_subtract_threshold: int = 30      # B-R difference threshold
+    dark_pixel_val_max: int = 80         # Max value for dark pixels
+    dark_pixel_sat_max: int = 60         # Max saturation for dark pixels
+    curve_thickness_min: int = 1         # Min curve thickness (pixels)
+    curve_thickness_max: int = 15        # Max curve thickness (pixels)
+    morph_kernel_size: int = 3           # Morphological opening kernel size
 
 
 @dataclass
@@ -105,6 +116,11 @@ class DigitizeConfig:
 
     # Confidence calculation
     min_confidence: float = 0.5
+
+    # Savitzky-Golay smoothing
+    smoothing_enabled: bool = False       # Enable Savitzky-Golay filter
+    savgol_window_length: int = 11        # Window length (must be odd)
+    savgol_polyorder: int = 3             # Polynomial order
 
 
 @dataclass

@@ -61,6 +61,25 @@ pub struct StraightenedGridResponse {
     pub output_path: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MatchBox {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MatchTemplateResponse {
+    pub success: bool,
+    pub message: Option<String>,
+    pub error: Option<String>,
+    pub match_count: Option<i32>,
+    pub boxes: Option<Vec<MatchBox>>,
+    pub match_image: Option<String>,
+    pub output_path: Option<String>,
+}
+
 /// Get the path to the Python backend
 fn get_backend_path() -> String {
     // In development, use relative path from src-tauri
@@ -172,6 +191,22 @@ fn straightened_grid(image_path: String, output_path: Option<String>) -> Result<
 }
 
 #[tauri::command]
+fn match_template(image_path: String, output_path: Option<String>) -> Result<MatchTemplateResponse, String> {
+    let mut args = vec!["match-template", "--image", &image_path];
+
+    let output_path_str;
+    if let Some(ref path) = output_path {
+        output_path_str = path.clone();
+        args.push("--output");
+        args.push(&output_path_str);
+    }
+
+    let output = run_python_command(args)?;
+    serde_json::from_str(&output)
+        .map_err(|e| format!("Failed to parse response: {}", e))
+}
+
+#[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
@@ -188,7 +223,8 @@ pub fn run() {
             dewarp_image,
             preview_grid,
             flattened_grid,
-            straightened_grid
+            straightened_grid,
+            match_template
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

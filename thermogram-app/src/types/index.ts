@@ -142,7 +142,28 @@ export type ViewMode =
   | "original"
   | "horizontal"
   | "vertical"
-  | "combined";
+  | "combined"
+  | "match";
+
+// ============================================================================
+// Template Matching Types
+// ============================================================================
+
+export interface MatchBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface MatchTemplateResponse {
+  success: boolean;
+  error?: string;
+  message?: string;
+  match_count?: number;
+  boxes?: MatchBox[];
+  match_image?: string;
+}
 
 // ============================================================================
 // Result Types (matching backend models)

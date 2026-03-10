@@ -27,6 +27,7 @@ interface ImageState {
   horizontalImage: string | null;
   verticalImage: string | null;
   combinedImage: string | null;
+  matchImage: string | null;
 
   // Line positions for client-side rendering
   verticalLinePositions: number[];
@@ -54,6 +55,7 @@ interface ImageState {
   setHorizontalImage: (image: string | null) => void;
   setVerticalImage: (image: string | null) => void;
   setCombinedImage: (image: string | null) => void;
+  setMatchImage: (image: string | null) => void;
   setLinePositions: (positions: {
     vertical: number[];
     horizontal: number[];
@@ -95,6 +97,7 @@ export const useImageStore = create<ImageState>((set) => ({
   horizontalImage: null,
   verticalImage: null,
   combinedImage: null,
+  matchImage: null,
   verticalLinePositions: [],
   horizontalLinePositions: [],
   imageHeight: 0,
@@ -114,6 +117,7 @@ export const useImageStore = create<ImageState>((set) => ({
       horizontalImage: null,
       verticalImage: null,
       combinedImage: null,
+      matchImage: null,
       viewMode: "original",
       processing: { stage: "preprocessing", progress: 10, message: "Loading image..." },
     }),
@@ -143,6 +147,8 @@ export const useImageStore = create<ImageState>((set) => ({
   setVerticalImage: (image) => set({ verticalImage: image }),
 
   setCombinedImage: (image) => set({ combinedImage: image }),
+
+  setMatchImage: (image) => set({ matchImage: image }),
 
   setLinePositions: (positions) =>
     set({
@@ -174,6 +180,7 @@ export const useImageStore = create<ImageState>((set) => ({
       horizontalImage: null,
       verticalImage: null,
       combinedImage: null,
+      matchImage: null,
     }),
 
   reset: () =>
@@ -186,6 +193,7 @@ export const useImageStore = create<ImageState>((set) => ({
       horizontalImage: null,
       verticalImage: null,
       combinedImage: null,
+      matchImage: null,
       verticalLinePositions: [],
       horizontalLinePositions: [],
       imageHeight: 0,
@@ -207,6 +215,8 @@ export const selectCurrentImage = (state: ImageState): string | null => {
       return state.verticalImage;
     case "combined":
       return state.combinedImage;
+    case "match":
+      return state.matchImage;
     case "original":
     default:
       return state.originalImage;

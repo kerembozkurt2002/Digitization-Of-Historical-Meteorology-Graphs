@@ -14,6 +14,7 @@ function App() {
     horizontalImage,
     verticalImage,
     combinedImage,
+    matchImage,
     verticalLinePositions,
     viewMode,
     setViewMode,
@@ -21,7 +22,7 @@ function App() {
   } = useImageStore();
 
   const currentImage = useImageStore(selectCurrentImage);
-  const { processGridDetection, isProcessing } = useProcessing();
+  const { processGridDetection, processMatchTemplate, isProcessing } = useProcessing();
 
   // Track image dimensions for canvas overlay
   const imageRef = useRef<HTMLImageElement>(null);
@@ -69,12 +70,15 @@ function App() {
         case "4":
           if (combinedImage) setViewMode("combined");
           break;
+        case "5":
+          if (matchImage) setViewMode("match");
+          break;
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [originalImage, horizontalImage, verticalImage, combinedImage, setViewMode]);
+  }, [originalImage, horizontalImage, verticalImage, combinedImage, matchImage, setViewMode]);
 
   const isViewActive = (mode: ViewMode): boolean => viewMode === mode;
 
@@ -102,10 +106,18 @@ function App() {
             >
               {isProcessing ? "Processing..." : "Detect Grid"}
             </button>
+            <button
+              onClick={processMatchTemplate}
+              disabled={!imagePath || isProcessing}
+              className="btn btn-primary"
+              style={{ marginTop: "8px" }}
+            >
+              {isProcessing ? "Processing..." : "Match 10s"}
+            </button>
           </div>
 
           <div className="panel">
-            <h2>View (1-4)</h2>
+            <h2>View (1-5)</h2>
             <div className="view-buttons">
               <button
                 onClick={() => setViewMode("original")}
@@ -138,6 +150,14 @@ function App() {
                 title="Both horizontal and vertical lines"
               >
                 4. Combined
+              </button>
+              <button
+                onClick={() => setViewMode("match")}
+                disabled={!matchImage}
+                className={`btn ${isViewActive("match") ? "btn-active" : ""}`}
+                title="Template matching for '10' labels"
+              >
+                5. Match
               </button>
             </div>
           </div>

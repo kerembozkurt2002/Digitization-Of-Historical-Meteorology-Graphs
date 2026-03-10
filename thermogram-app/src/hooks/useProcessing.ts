@@ -5,7 +5,7 @@
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useImageStore, selectIsProcessing } from "../stores/imageStore";
-import type { PreviewResponse } from "../types";
+import type { PreviewResponse, MatchTemplateResponse } from "../types";
 
 export function useProcessing() {
   const {
@@ -16,6 +16,7 @@ export function useProcessing() {
     setHorizontalImage,
     setVerticalImage,
     setCombinedImage,
+    setMatchImage,
     setLinePositions,
     setProcessingState,
     setViewMode,
@@ -115,8 +116,54 @@ export function useProcessing() {
     }
   }, [imagePath, calibration, setOriginalImage, setHorizontalImage, setVerticalImage, setCombinedImage, setProcessingState, setViewMode]);
 
+  const processMatchTemplate = useCallback(async () => {
+    if (!imagePath) {
+      setProcessingState({
+        stage: "error",
+        message: "Please select an image first.",
+      });
+      return;
+    }
+
+    setProcessingState({
+      stage: "preprocessing",
+      progress: 20,
+      message: "Running template matching...",
+    });
+
+    try {
+      const matchResult = await invoke<MatchTemplateResponse>("match_template", {
+        imagePath: imagePath,
+      });
+
+      if (matchResult.success && matchResult.match_image) {
+        setMatchImage(matchResult.match_image);
+        setProcessingState({
+          stage: "complete",
+          progress: 100,
+          message: `Found ${matchResult.match_count ?? 0} matches`,
+        });
+        setViewMode("match");
+      } else {
+        setProcessingState({
+          stage: "error",
+          progress: 0,
+          message: matchResult.error ?? "Template matching failed",
+        });
+      }
+    } catch (err) {
+      setProcessingState({
+        stage: "error",
+        progress: 0,
+        message: `Error: ${err}`,
+        error: String(err),
+      });
+    }
+  }, [imagePath, setMatchImage, setProcessingState, setViewMode]);
+
   return {
     processGridDetection,
+    processMatchTemplate,
     isProcessing,
     calibration,
     chartType,
