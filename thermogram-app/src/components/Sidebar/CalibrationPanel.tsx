@@ -14,7 +14,7 @@ const CHART_TYPE_LABELS: Record<ChartFormat, string> = {
 };
 
 export function CalibrationPanel() {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const {
     imagePath,

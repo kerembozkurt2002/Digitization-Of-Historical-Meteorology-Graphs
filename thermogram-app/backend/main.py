@@ -19,6 +19,7 @@ import numpy as np
 from pipeline.dewarper import Dewarper
 from pipeline.preprocessor import Preprocessor
 from pipeline.template_matcher import TemplateMatcher
+from pipeline.template_detector import TemplateDetector
 from pipeline.segmenter import Segmenter
 from pipeline.digitizer import Digitizer
 from pipeline.calibrator import Calibrator
@@ -451,6 +452,58 @@ def cmd_process(args):
         return 1
 
 
+def cmd_detect_template(args):
+    """Detect thermogram template type."""
+    image_path = args.image
+
+    if not os.path.exists(image_path):
+        result = {
+            "success": False,
+            "error": f"Image file not found: {image_path}"
+        }
+        print(json.dumps(result))
+        return 1
+
+    try:
+        try:
+            image = load_image(image_path)
+        except ValueError as e:
+            result = {
+                "success": False,
+                "error": str(e)
+            }
+            print(json.dumps(result))
+            return 1
+
+        # Detect template
+        detector = TemplateDetector()
+        match = detector.detect(image)
+
+        # Get template metadata
+        template_info = detector.TEMPLATES.get(match.template_id, {})
+
+        response = {
+            "success": True,
+            "template_id": match.template_id,
+            "chart_type": match.chart_type,
+            "confidence": round(match.confidence, 4),
+            "period": template_info.get("period", "unknown"),
+            "grid_color": template_info.get("grid_color", "unknown"),
+            "all_scores": {k: round(v, 4) for k, v in sorted(match.all_scores.items(), key=lambda x: -x[1])}
+        }
+
+        print(json.dumps(response))
+        return 0
+
+    except Exception as e:
+        result = {
+            "success": False,
+            "error": str(e)
+        }
+        print(json.dumps(result))
+        return 1
+
+
 def cmd_health(args):
     """Health check command."""
     # Import all pipeline stages to verify they load
@@ -552,6 +605,11 @@ def main():
                                 help='Savitzky-Golay polynomial order (default: 3)')
     process_parser.add_argument('--output', '-o', help='Path to save output CSV')
     process_parser.set_defaults(func=cmd_process)
+
+    # Detect template command
+    detect_parser = subparsers.add_parser('detect-template', help='Detect thermogram template type')
+    detect_parser.add_argument('--image', '-i', required=True, help='Path to input image')
+    detect_parser.set_defaults(func=cmd_detect_template)
 
     # Health check command
     health_parser = subparsers.add_parser('health', help='Health check')

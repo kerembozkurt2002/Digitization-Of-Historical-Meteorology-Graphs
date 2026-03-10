@@ -5,13 +5,14 @@
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useImageStore, selectIsProcessing } from "../stores/imageStore";
-import type { PreviewResponse, MatchTemplateResponse } from "../types";
+import type { PreviewResponse, MatchTemplateResponse, DetectTemplateResponse } from "../types";
 
 export function useProcessing() {
   const {
     imagePath,
     calibration,
     chartType,
+    detectedTemplate,
     setOriginalImage,
     setHorizontalImage,
     setVerticalImage,
@@ -20,6 +21,7 @@ export function useProcessing() {
     setLinePositions,
     setProcessingState,
     setViewMode,
+    setDetectedTemplate,
   } = useImageStore();
 
   const isProcessing = useImageStore(selectIsProcessing);
@@ -161,12 +163,45 @@ export function useProcessing() {
     }
   }, [imagePath, setMatchImage, setProcessingState, setViewMode]);
 
+  const detectTemplate = useCallback(async () => {
+    if (!imagePath) {
+      return null;
+    }
+
+    try {
+      const result = await invoke<DetectTemplateResponse>("detect_template", {
+        imagePath: imagePath,
+      });
+
+      if (result.success && result.template_id) {
+        const template = {
+          templateId: result.template_id,
+          chartType: result.chart_type ?? "unknown",
+          confidence: result.confidence ?? 0,
+          period: result.period ?? "unknown",
+          gridColor: result.grid_color ?? "unknown",
+        };
+        setDetectedTemplate(template);
+        return template;
+      } else {
+        setDetectedTemplate(null);
+        return null;
+      }
+    } catch (err) {
+      console.error("Template detection error:", err);
+      setDetectedTemplate(null);
+      return null;
+    }
+  }, [imagePath, setDetectedTemplate]);
+
   return {
     processGridDetection,
     processMatchTemplate,
+    detectTemplate,
     isProcessing,
     calibration,
     chartType,
+    detectedTemplate,
   };
 }
 

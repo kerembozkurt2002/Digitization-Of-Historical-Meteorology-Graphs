@@ -165,6 +165,17 @@ export interface MatchTemplateResponse {
   match_image?: string;
 }
 
+export interface DetectTemplateResponse {
+  success: boolean;
+  error?: string;
+  template_id?: string;
+  chart_type?: string;
+  confidence?: number;
+  period?: string;
+  grid_color?: string;
+  all_scores?: Record<string, number>;
+}
+
 // ============================================================================
 // Result Types (matching backend models)
 // ============================================================================

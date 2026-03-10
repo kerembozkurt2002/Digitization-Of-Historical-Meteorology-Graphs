@@ -13,10 +13,21 @@ import type {
 } from "../types";
 import { CHART_TYPE_DEFAULTS } from "../types";
 
+interface DetectedTemplate {
+  templateId: string;
+  chartType: string;
+  confidence: number;
+  period: string;
+  gridColor: string;
+}
+
 interface ImageState {
   // File state
   imagePath: string | null;
   metadata: ChartMetadata | null;
+
+  // Template detection
+  detectedTemplate: DetectedTemplate | null;
 
   // Chart type and calibration
   chartType: ChartFormat;
@@ -48,6 +59,7 @@ interface ImageState {
   // Actions
   setImagePath: (path: string | null) => void;
   setMetadata: (metadata: ChartMetadata | null) => void;
+  setDetectedTemplate: (template: DetectedTemplate | null) => void;
   setChartType: (chartType: ChartFormat) => void;
   setCalibration: (calibration: Partial<CalibrationSettings>) => void;
   resetCalibrationToDefaults: () => void;
@@ -91,6 +103,7 @@ export const useImageStore = create<ImageState>((set) => ({
   // Initial state
   imagePath: null,
   metadata: null,
+  detectedTemplate: null,
   chartType: initialChartType,
   calibration: initialCalibration,
   originalImage: null,
@@ -123,6 +136,8 @@ export const useImageStore = create<ImageState>((set) => ({
     }),
 
   setMetadata: (metadata) => set({ metadata }),
+
+  setDetectedTemplate: (template) => set({ detectedTemplate: template }),
 
   setChartType: (chartType) =>
     set({
@@ -187,6 +202,7 @@ export const useImageStore = create<ImageState>((set) => ({
     set({
       imagePath: null,
       metadata: null,
+      detectedTemplate: null,
       chartType: initialChartType,
       calibration: initialCalibration,
       originalImage: null,

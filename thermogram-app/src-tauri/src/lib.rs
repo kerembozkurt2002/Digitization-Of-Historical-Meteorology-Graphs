@@ -80,6 +80,18 @@ pub struct MatchTemplateResponse {
     pub output_path: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DetectTemplateResponse {
+    pub success: bool,
+    pub error: Option<String>,
+    pub template_id: Option<String>,
+    pub chart_type: Option<String>,
+    pub confidence: Option<f64>,
+    pub period: Option<String>,
+    pub grid_color: Option<String>,
+    pub all_scores: Option<std::collections::HashMap<String, f64>>,
+}
+
 /// Get the path to the Python backend
 fn get_backend_path() -> String {
     // In development, use relative path from src-tauri
@@ -207,6 +219,15 @@ fn match_template(image_path: String, output_path: Option<String>) -> Result<Mat
 }
 
 #[tauri::command]
+fn detect_template(image_path: String) -> Result<DetectTemplateResponse, String> {
+    let args = vec!["detect-template", "--image", &image_path];
+
+    let output = run_python_command(args)?;
+    serde_json::from_str(&output)
+        .map_err(|e| format!("Failed to parse response: {}", e))
+}
+
+#[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
@@ -224,7 +245,8 @@ pub fn run() {
             preview_grid,
             flattened_grid,
             straightened_grid,
-            match_template
+            match_template,
+            detect_template
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

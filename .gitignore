@@ -4,6 +4,9 @@ TERMOGRAM-1_ORNEK_DATA/
 # Documentation (wiki clone)
 docs/
 data/
+data-final/
+datapng/
+data-classified/
 
 # Python
 __pycache__/
