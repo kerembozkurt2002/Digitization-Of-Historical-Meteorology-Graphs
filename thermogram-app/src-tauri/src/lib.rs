@@ -20,25 +20,6 @@ pub struct PreviewResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct MatchBox {
-    pub x: i32,
-    pub y: i32,
-    pub w: i32,
-    pub h: i32,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MatchTemplateResponse {
-    pub success: bool,
-    pub message: Option<String>,
-    pub error: Option<String>,
-    pub match_count: Option<i32>,
-    pub boxes: Option<Vec<MatchBox>>,
-    pub match_image: Option<String>,
-    pub output_path: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct DetectTemplateResponse {
     pub success: bool,
     pub error: Option<String>,
@@ -158,22 +139,6 @@ fn preview_grid(image_path: String, algorithm: Option<i32>, output_path: Option<
 }
 
 #[tauri::command]
-fn match_template(image_path: String, output_path: Option<String>) -> Result<MatchTemplateResponse, String> {
-    let mut args = vec!["match-template", "--image", &image_path];
-
-    let output_path_str;
-    if let Some(ref path) = output_path {
-        output_path_str = path.clone();
-        args.push("--output");
-        args.push(&output_path_str);
-    }
-
-    let output = run_python_command(args)?;
-    serde_json::from_str(&output)
-        .map_err(|e| format!("Failed to parse response: {}", e))
-}
-
-#[tauri::command]
 fn detect_template(image_path: String) -> Result<DetectTemplateResponse, String> {
     let args = vec!["detect-template", "--image", &image_path];
 
@@ -253,7 +218,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             preview_grid,
-            match_template,
             detect_template,
             get_calibration,
             save_calibration_simple

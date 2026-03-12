@@ -4,20 +4,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { useImageStore } from "./stores/imageStore";
 import { useCalibrationStore } from "./stores/calibrationStore";
 import { UploadPanel } from "./components/Sidebar/UploadPanel";
-import { CalibrationPanel } from "./components/Sidebar/CalibrationPanel";
 import { GridOverlay } from "./components/Workspace/GridOverlay";
 import { TemplateSelector } from "./components/Sidebar/TemplateSelector";
 import { CalibrationModal } from "./components/CalibrationModal";
-import { useProcessing } from "./hooks/useProcessing";
 import { useImageLoader } from "./hooks/useImageLoader";
 import type { ViewMode, GetCalibrationResponse } from "./types";
 import "./App.css";
 
 function App() {
   const {
-    imagePath,
     originalImage,
-    matchImage,
     imageWidth,
     imageHeight,
     detectedTemplate,
@@ -27,7 +23,6 @@ function App() {
     gridCalibration,
   } = useImageStore();
 
-  const { processMatchTemplate, isProcessing } = useProcessing();
   const { loadImageFromPath } = useImageLoader();
   const { openModal: openCalibrationModal, openAlignment } = useCalibrationStore();
 
@@ -70,9 +65,34 @@ function App() {
   // Drag and drop state
   const [isDragOver, setIsDragOver] = useState(false);
 
+  // Track if calibration file exists for current template
+  const [hasCalibrationFile, setHasCalibrationFile] = useState(false);
+
+  // Check calibration file existence when template changes
+  useEffect(() => {
+    if (!detectedTemplate?.templateId) {
+      setHasCalibrationFile(false);
+      return;
+    }
+
+    const checkCalibration = async () => {
+      try {
+        const result = await invoke<GetCalibrationResponse>("get_calibration", {
+          templateId: detectedTemplate.templateId,
+        });
+        setHasCalibrationFile(result.success && result.exists === true);
+      } catch {
+        setHasCalibrationFile(false);
+      }
+    };
+
+    checkCalibration();
+  }, [detectedTemplate?.templateId]);
+
   // Check if calibration is needed (for UI display)
   const canCalibrate = !!detectedTemplate?.templateId && !!originalImage && imageWidth > 0 && imageHeight > 0;
-  const needsCalibration = canCalibrate && gridCalibration === null;
+  const canAlign = canCalibrate && hasCalibrationFile;
+  const needsCalibration = canCalibrate && !hasCalibrationFile;
 
   // Tauri drag-drop event listener
   useEffect(() => {
@@ -119,13 +139,10 @@ function App() {
     }
   };
 
-  // Show grid overlay when calibration exists and viewing original
+  // Show grid overlay when calibration exists and viewing "original" (grid view)
   const showGridOverlay = gridCalibration !== null && viewMode === "original";
 
-  // Determine which image to show
-  const displayImage = viewMode === "match" ? matchImage : originalImage;
-
-  // Keyboard shortcuts for switching views (1-2)
+  // Keyboard shortcuts for switching views (0-1)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -136,18 +153,18 @@ function App() {
       }
 
       switch (e.key) {
+        case "0":
+          if (originalImage) setViewMode("image");
+          break;
         case "1":
           if (originalImage) setViewMode("original");
-          break;
-        case "2":
-          if (matchImage) setViewMode("match");
           break;
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [originalImage, matchImage, setViewMode]);
+  }, [originalImage, setViewMode]);
 
   const isViewActive = (mode: ViewMode): boolean => viewMode === mode;
 
@@ -164,11 +181,11 @@ function App() {
           <button
             className="btn btn-align"
             onClick={handleOpenAlignment}
-            disabled={!gridCalibration}
+            disabled={!canAlign}
             title={
-              !gridCalibration
-                ? "Calibrate first to enable alignment"
-                : `Re-align grid for ${detectedTemplate?.templateId}`
+              !canAlign
+                ? "No calibration file for this template"
+                : `Align grid for ${detectedTemplate?.templateId}`
             }
           >
             Align
@@ -204,39 +221,26 @@ function App() {
             <TemplateSelector />
 
             <div className="panel">
-              <h2>Tools</h2>
-              <button
-                onClick={processMatchTemplate}
-                disabled={!imagePath || isProcessing}
-                className="btn btn-primary"
-              >
-                {isProcessing ? "Processing..." : "Match 10s"}
-              </button>
-            </div>
-
-            <div className="panel">
-              <h2>View (1-2)</h2>
+              <h2>View (0-1)</h2>
               <div className="view-buttons">
+                <button
+                  onClick={() => setViewMode("image")}
+                  disabled={!originalImage}
+                  className={`btn ${isViewActive("image") ? "btn-active" : ""}`}
+                  title="Rotated image only"
+                >
+                  0. Image
+                </button>
                 <button
                   onClick={() => setViewMode("original")}
                   disabled={!originalImage}
                   className={`btn ${isViewActive("original") ? "btn-active" : ""}`}
-                  title="Original image with grid overlay"
+                  title="Image with grid overlay"
                 >
-                  1. Image {gridCalibration ? "+ Grid" : ""}
-                </button>
-                <button
-                  onClick={() => setViewMode("match")}
-                  disabled={!matchImage}
-                  className={`btn ${isViewActive("match") ? "btn-active" : ""}`}
-                  title="Template matching for '10' labels"
-                >
-                  2. Match
+                  1. Grid
                 </button>
               </div>
             </div>
-
-            <CalibrationPanel />
           </div>
 
           <div className="sidebar-pinned">
@@ -256,11 +260,11 @@ function App() {
               </div>
             </div>
           )}
-          {displayImage ? (
+          {originalImage ? (
             <div className="image-container" style={{ position: "relative" }}>
               <img
                 ref={imageRef}
-                src={`data:image/png;base64,${displayImage}`}
+                src={`data:image/png;base64,${originalImage}`}
                 alt={viewMode}
                 className="thermogram-image"
                 onLoad={handleImageLoad}

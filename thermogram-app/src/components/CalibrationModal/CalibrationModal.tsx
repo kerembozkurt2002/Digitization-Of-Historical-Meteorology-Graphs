@@ -66,7 +66,7 @@ export function CalibrationModal() {
     setTemplateId,
   } = useCalibrationStore();
 
-  const { originalImage, setOriginalImage, setGridCalibration } = useImageStore();
+  const { originalImage, setOriginalImage, setGridCalibration, setViewMode } = useImageStore();
   const { loadGridCalibration } = useProcessing();
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -165,13 +165,15 @@ export function CalibrationModal() {
         calibratedAt: new Date().toISOString(),
       });
 
+      // Switch to grid view after alignment
+      setViewMode("original");
       closeModal();
     } catch (err) {
       console.error("Failed to apply alignment:", err);
     } finally {
       setIsApplyingAlignment(false);
     }
-  }, [alignmentPoint, alignmentEndPoint, savedCalibration, originalImage, imageWidth, imageHeight, setOriginalImage, setGridCalibration, closeModal, calculateAlignmentRotation]);
+  }, [alignmentPoint, alignmentEndPoint, savedCalibration, originalImage, imageWidth, imageHeight, setOriginalImage, setGridCalibration, setViewMode, closeModal, calculateAlignmentRotation]);
 
   // Handle alignment back button
   // Priority: clear endPoint first, then clear alignmentPoint
@@ -244,6 +246,8 @@ export function CalibrationModal() {
 
       if (result.success) {
         await loadGridCalibration(templateId);
+        // Switch to grid view after calibration
+        setViewMode("original");
         closeModal();
       } else {
         setError(result.error || "Failed to save calibration");
@@ -258,7 +262,7 @@ export function CalibrationModal() {
     horizontalTop, horizontalEndPoint, horizontalTopTemp, horizontalSpacing, rotationAngle,
     verticalLine1Top, verticalLine1Bottom, verticalLine1Hour, verticalLine1Minute,
     centerY, curvature, verticalSpacing,
-    closeModal, loadGridCalibration
+    closeModal, loadGridCalibration, setViewMode
   ]);
 
   const [isRotating, setIsRotating] = useState(false);
@@ -563,13 +567,28 @@ export function CalibrationModal() {
           <div className="calibration-sliders">
             <div className="slider-group">
               <label>
-                Horizontal Spacing: <span className="slider-value">{horizontalSpacing.toFixed(1)} px</span>
+                Horizontal Spacing:
+                <input
+                  type="number"
+                  min={spacingMin}
+                  max={spacingMax}
+                  step={0.01}
+                  value={horizontalSpacing.toFixed(2)}
+                  onChange={(e) => setHorizontalSpacing(Number(e.target.value))}
+                  onWheel={(e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? -0.01 : 0.01;
+                    setHorizontalSpacing(Math.max(spacingMin, Math.min(spacingMax, horizontalSpacing + delta)));
+                  }}
+                  className="slider-input"
+                />
+                <span className="slider-unit">px</span>
               </label>
               <input
                 type="range"
                 min={spacingMin}
                 max={spacingMax}
-                step={0.1}
+                step={0.01}
                 value={horizontalSpacing}
                 onChange={(e) => setHorizontalSpacing(Number(e.target.value))}
                 className="slider"
@@ -593,7 +612,21 @@ export function CalibrationModal() {
           <div className="calibration-sliders">
             <div className="slider-group">
               <label>
-                Bend Center (Y): <span className="slider-value">{Math.round(centerY)}</span>
+                Bend Center (Y):
+                <input
+                  type="number"
+                  min={centerYMin}
+                  max={centerYMax}
+                  step={1}
+                  value={Math.round(centerY)}
+                  onChange={(e) => setCenterY(Number(e.target.value))}
+                  onWheel={(e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? -1 : 1;
+                    setCenterY(Math.max(centerYMin, Math.min(centerYMax, centerY + delta)));
+                  }}
+                  className="slider-input"
+                />
               </label>
               <input
                 type="range"
@@ -612,13 +645,28 @@ export function CalibrationModal() {
 
             <div className="slider-group">
               <label>
-                Curvature: <span className="slider-value">{Math.round(curvature)} px</span>
+                Curvature:
+                <input
+                  type="number"
+                  min={curvatureMin}
+                  max={curvatureMax}
+                  step={0.01}
+                  value={curvature.toFixed(2)}
+                  onChange={(e) => setCurvature(Number(e.target.value))}
+                  onWheel={(e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? -0.01 : 0.01;
+                    setCurvature(Math.max(curvatureMin, Math.min(curvatureMax, curvature + delta)));
+                  }}
+                  className="slider-input"
+                />
+                <span className="slider-unit">px</span>
               </label>
               <input
                 type="range"
                 min={curvatureMin}
                 max={curvatureMax}
-                step={1}
+                step={0.01}
                 value={curvature}
                 onChange={(e) => setCurvature(Number(e.target.value))}
                 className="slider"
@@ -637,13 +685,28 @@ export function CalibrationModal() {
           <div className="calibration-sliders">
             <div className="slider-group">
               <label>
-                Vertical Spacing: <span className="slider-value">{verticalSpacing.toFixed(1)} px</span>
+                Vertical Spacing:
+                <input
+                  type="number"
+                  min={spacingMin}
+                  max={spacingMax}
+                  step={0.01}
+                  value={verticalSpacing.toFixed(2)}
+                  onChange={(e) => setVerticalSpacing(Number(e.target.value))}
+                  onWheel={(e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? -0.01 : 0.01;
+                    setVerticalSpacing(Math.max(spacingMin, Math.min(spacingMax, verticalSpacing + delta)));
+                  }}
+                  className="slider-input"
+                />
+                <span className="slider-unit">px</span>
               </label>
               <input
                 type="range"
                 min={spacingMin}
                 max={spacingMax}
-                step={0.1}
+                step={0.01}
                 value={verticalSpacing}
                 onChange={(e) => setVerticalSpacing(Number(e.target.value))}
                 className="slider"

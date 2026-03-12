@@ -118,27 +118,11 @@ export interface ProcessingState {
 // View Mode Types
 // ============================================================================
 
-export type ViewMode = "original" | "match";
+export type ViewMode = "image" | "original";
 
 // ============================================================================
-// Template Matching Types
+// Template Detection Types
 // ============================================================================
-
-export interface MatchBox {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-export interface MatchTemplateResponse {
-  success: boolean;
-  error?: string;
-  message?: string;
-  match_count?: number;
-  boxes?: MatchBox[];
-  match_image?: string;
-}
 
 export interface DetectTemplateResponse {
   success: boolean;

@@ -4,9 +4,8 @@ Thermogram Processing Pipeline
 Pipeline modules:
 1. Preprocessor - Normalize, denoise, enhance contrast
 2. Dewarper - Grid line detection for overlay
-3. TemplateMatcher - Find "10" labels via template matching
-4. TemplateDetector - Detect thermogram template type
-5. CalibrationProcessor - Manual grid calibration
+3. TemplateDetector - Detect thermogram template type
+4. CalibrationProcessor - Manual grid calibration
 """
 
 # Preprocessor

@@ -17,7 +17,6 @@ import numpy as np
 
 from pipeline.dewarper import Dewarper
 from pipeline.preprocessor import Preprocessor
-from pipeline.template_matcher import TemplateMatcher
 from pipeline.template_detector import TemplateDetector
 from utils.image_utils import load_image, encode_image_base64, save_image
 
@@ -72,62 +71,6 @@ def cmd_preview(args):
 
         if args.output:
             save_image(overlay_result.overlay_image, args.output)
-            response["output_path"] = args.output
-
-        print(json.dumps(response))
-        return 0
-
-    except Exception as e:
-        result = {
-            "success": False,
-            "error": str(e)
-        }
-        print(json.dumps(result))
-        return 1
-
-
-def cmd_match_template(args):
-    """Find '10' labels in image using template matching."""
-    image_path = args.image
-
-    if not os.path.exists(image_path):
-        result = {
-            "success": False,
-            "error": f"Image file not found: {image_path}"
-        }
-        print(json.dumps(result))
-        return 1
-
-    try:
-        try:
-            image = load_image(image_path)
-        except ValueError as e:
-            result = {
-                "success": False,
-                "error": str(e)
-            }
-            print(json.dumps(result))
-            return 1
-
-        # Apply deskew preprocessing first
-        preprocessor = Preprocessor()
-        deskewed_image, _ = preprocessor._deskew(preprocessor._normalize(image))
-
-        # Run template matching
-        matcher = TemplateMatcher()
-        match_result = matcher.match(deskewed_image)
-
-        response = {
-            "success": match_result.success,
-            "message": match_result.message,
-            "match_count": len(match_result.boxes),
-            "boxes": [{"x": b[0], "y": b[1], "w": b[2], "h": b[3]} for b in match_result.boxes],
-            "match_image": encode_image_base64(match_result.matched_image),
-            "calibration_line_y": match_result.calibration_line_y
-        }
-
-        if args.output:
-            save_image(match_result.matched_image, args.output)
             response["output_path"] = args.output
 
         print(json.dumps(response))
@@ -316,12 +259,6 @@ def main():
     preview_parser.add_argument('--curvature', '-c', type=float, default=None,
                                 help='Vertical line curvature override (0.0=straight, 1.0=max curve)')
     preview_parser.set_defaults(func=cmd_preview)
-
-    # Match template command
-    match_parser = subparsers.add_parser('match-template', help='Find 10 labels using template matching')
-    match_parser.add_argument('--image', '-i', required=True, help='Path to input image')
-    match_parser.add_argument('--output', '-o', help='Path to save matched image')
-    match_parser.set_defaults(func=cmd_match_template)
 
     # Detect template command
     detect_parser = subparsers.add_parser('detect-template', help='Detect thermogram template type')

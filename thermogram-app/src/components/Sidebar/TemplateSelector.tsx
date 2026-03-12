@@ -3,7 +3,10 @@
  */
 
 import { useState, useRef, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useImageStore } from "../../stores/imageStore";
+import { useCalibrationStore } from "../../stores/calibrationStore";
+import type { GetCalibrationResponse } from "../../types";
 import "./TemplateSelector.css";
 
 // Template metadata (from template_detector.py)
@@ -22,7 +25,8 @@ export const TEMPLATES = {
 type TemplateId = keyof typeof TEMPLATES;
 
 export function TemplateSelector() {
-  const { detectedTemplate, setDetectedTemplate } = useImageStore();
+  const { detectedTemplate, setDetectedTemplate, imageWidth, imageHeight } = useImageStore();
+  const { openAlignment } = useCalibrationStore();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -54,7 +58,7 @@ export function TemplateSelector() {
     }
   }, [isOpen]);
 
-  const handleSelect = (templateId: TemplateId) => {
+  const handleSelect = async (templateId: TemplateId) => {
     const meta = TEMPLATES[templateId];
     setDetectedTemplate({
       templateId,
@@ -64,6 +68,33 @@ export function TemplateSelector() {
       gridColor: meta.gridColor,
     });
     setIsOpen(false);
+
+    // Check if calibration exists for this template and auto-open alignment
+    if (imageWidth > 0 && imageHeight > 0) {
+      try {
+        const calibResult = await invoke<GetCalibrationResponse>("get_calibration", {
+          templateId,
+        });
+
+        if (calibResult.success && calibResult.exists && calibResult.derived) {
+          const savedCalibrationData = {
+            referenceHour: calibResult.derived.reference_hour ?? 12,
+            referenceMinute: calibResult.derived.reference_minute ?? 0,
+            referenceTemp: calibResult.derived.reference_temp ?? calibResult.derived.horizontal_top_temp ?? 0,
+            verticalSpacing: calibResult.derived.line_spacing,
+            horizontalSpacing: calibResult.derived.horizontal_spacing ?? 25,
+            curvature: calibResult.derived.curve_coeff_a,
+            centerY: calibResult.derived.curve_center_y,
+            topPoint: calibResult.derived.top_point,
+            bottomPoint: calibResult.derived.bottom_point,
+          };
+
+          openAlignment(templateId, imageWidth, imageHeight, savedCalibrationData);
+        }
+      } catch (err) {
+        console.error("Failed to check calibration for template:", err);
+      }
+    }
   };
 
   if (!detectedTemplate) {

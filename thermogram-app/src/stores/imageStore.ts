@@ -58,7 +58,6 @@ interface ImageState {
 
   // Image data (base64 encoded)
   originalImage: string | null;
-  matchImage: string | null;
 
   // Image dimensions (for calibration modal)
   imageHeight: number;
@@ -80,7 +79,6 @@ interface ImageState {
   setCalibration: (calibration: Partial<CalibrationSettings>) => void;
   resetCalibrationToDefaults: () => void;
   setOriginalImage: (image: string | null) => void;
-  setMatchImage: (image: string | null) => void;
   setImageDimensions: (width: number, height: number) => void;
   setViewMode: (mode: ViewMode) => void;
   setZoom: (zoom: Partial<ZoomState>) => void;
@@ -114,10 +112,9 @@ export const useImageStore = create<ImageState>((set) => ({
   chartType: initialChartType,
   calibration: initialCalibration,
   originalImage: null,
-  matchImage: null,
   imageHeight: 0,
   imageWidth: 0,
-  viewMode: "original",
+  viewMode: "image",
   zoom: initialZoom,
   processing: initialProcessing,
 
@@ -126,9 +123,7 @@ export const useImageStore = create<ImageState>((set) => ({
     set({
       imagePath: path,
       // DON'T clear originalImage - keep showing old image until new one loads
-      // Only clear the processed images
-      matchImage: null,
-      viewMode: "original",
+      viewMode: "image",
       processing: { stage: "preprocessing", progress: 10, message: "Loading image..." },
     }),
 
@@ -156,8 +151,6 @@ export const useImageStore = create<ImageState>((set) => ({
 
   setOriginalImage: (image) => set({ originalImage: image }),
 
-  setMatchImage: (image) => set({ matchImage: image }),
-
   setImageDimensions: (width, height) =>
     set({
       imageWidth: width,
@@ -181,7 +174,6 @@ export const useImageStore = create<ImageState>((set) => ({
   clearImages: () =>
     set({
       originalImage: null,
-      matchImage: null,
     }),
 
   reset: () =>
@@ -193,10 +185,9 @@ export const useImageStore = create<ImageState>((set) => ({
       chartType: initialChartType,
       calibration: initialCalibration,
       originalImage: null,
-      matchImage: null,
       imageHeight: 0,
       imageWidth: 0,
-      viewMode: "original",
+      viewMode: "image",
       zoom: initialZoom,
       processing: initialProcessing,
     }),
@@ -204,13 +195,7 @@ export const useImageStore = create<ImageState>((set) => ({
 
 // Selectors
 export const selectCurrentImage = (state: ImageState): string | null => {
-  switch (state.viewMode) {
-    case "match":
-      return state.matchImage;
-    case "original":
-    default:
-      return state.originalImage;
-  }
+  return state.originalImage;
 };
 
 export const selectIsProcessing = (state: ImageState): boolean => {

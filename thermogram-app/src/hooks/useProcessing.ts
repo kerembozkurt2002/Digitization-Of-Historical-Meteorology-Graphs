@@ -4,8 +4,8 @@
 
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useImageStore, selectIsProcessing } from "../stores/imageStore";
-import type { MatchTemplateResponse, DetectTemplateResponse, GetCalibrationResponse } from "../types";
+import { useImageStore } from "../stores/imageStore";
+import type { DetectTemplateResponse, GetCalibrationResponse } from "../types";
 
 export function useProcessing() {
   const {
@@ -14,59 +14,9 @@ export function useProcessing() {
     chartType,
     detectedTemplate,
     gridCalibration,
-    setMatchImage,
-    setProcessingState,
-    setViewMode,
     setDetectedTemplate,
     setGridCalibration,
   } = useImageStore();
-
-  const isProcessing = useImageStore(selectIsProcessing);
-
-  const processMatchTemplate = useCallback(async () => {
-    if (!imagePath) {
-      setProcessingState({
-        stage: "error",
-        message: "Please select an image first.",
-      });
-      return;
-    }
-
-    setProcessingState({
-      stage: "preprocessing",
-      progress: 20,
-      message: "Running template matching...",
-    });
-
-    try {
-      const matchResult = await invoke<MatchTemplateResponse>("match_template", {
-        imagePath: imagePath,
-      });
-
-      if (matchResult.success && matchResult.match_image) {
-        setMatchImage(matchResult.match_image);
-        setProcessingState({
-          stage: "complete",
-          progress: 100,
-          message: `Found ${matchResult.match_count ?? 0} matches`,
-        });
-        setViewMode("match");
-      } else {
-        setProcessingState({
-          stage: "error",
-          progress: 0,
-          message: matchResult.error ?? "Template matching failed",
-        });
-      }
-    } catch (err) {
-      setProcessingState({
-        stage: "error",
-        progress: 0,
-        message: `Error: ${err}`,
-        error: String(err),
-      });
-    }
-  }, [imagePath, setMatchImage, setProcessingState, setViewMode]);
 
   const loadGridCalibration = useCallback(async (templateId: string) => {
     try {
@@ -144,10 +94,8 @@ export function useProcessing() {
   }, [imagePath, setDetectedTemplate, setGridCalibration, loadGridCalibration]);
 
   return {
-    processMatchTemplate,
     detectTemplate,
     loadGridCalibration,
-    isProcessing,
     calibration,
     chartType,
     detectedTemplate,
