@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { useImageStore, selectCurrentImage } from "./stores/imageStore";
+import { useImageStore } from "./stores/imageStore";
+import { useCalibrationStore } from "./stores/calibrationStore";
 import { UploadPanel } from "./components/Sidebar/UploadPanel";
 import { CalibrationPanel } from "./components/Sidebar/CalibrationPanel";
 import { GridOverlay } from "./components/Workspace/GridOverlay";
 import { TemplateSelector } from "./components/Sidebar/TemplateSelector";
+import { CalibrationModal } from "./components/CalibrationModal";
 import { useProcessing } from "./hooks/useProcessing";
 import { useImageLoader } from "./hooks/useImageLoader";
 import type { ViewMode } from "./types";
@@ -14,29 +16,32 @@ function App() {
   const {
     imagePath,
     originalImage,
-    horizontalImage,
-    verticalImage,
-    combinedImage,
     matchImage,
-    verticalLinePositions,
+    imageWidth,
+    imageHeight,
+    detectedTemplate,
     viewMode,
     setViewMode,
     processing,
+    gridCalibration,
   } = useImageStore();
 
-  const currentImage = useImageStore(selectCurrentImage);
-  const { processGridDetection, processMatchTemplate, detectTemplate, isProcessing } = useProcessing();
+  const { processMatchTemplate, isProcessing } = useProcessing();
   const { loadImageFromPath } = useImageLoader();
+  const { openModal: openCalibrationModal } = useCalibrationStore();
+
+  // Handle opening calibration modal
+  const handleOpenCalibration = () => {
+    if (!detectedTemplate?.templateId || !imageWidth || !imageHeight) return;
+    openCalibrationModal(detectedTemplate.templateId, imageWidth, imageHeight);
+  };
 
   // Drag and drop state
   const [isDragOver, setIsDragOver] = useState(false);
 
-  // Detect template when image changes
-  useEffect(() => {
-    if (imagePath) {
-      detectTemplate();
-    }
-  }, [imagePath, detectTemplate]);
+  // Check if calibration is needed (for UI display)
+  const canCalibrate = !!detectedTemplate?.templateId && !!originalImage && imageWidth > 0 && imageHeight > 0;
+  const needsCalibration = canCalibrate && gridCalibration === null;
 
   // Tauri drag-drop event listener
   useEffect(() => {
@@ -57,6 +62,7 @@ function App() {
           const ext = filePath.split(".").pop()?.toLowerCase();
           const validExtensions = ["tif", "tiff", "png", "jpg", "jpeg"];
           if (ext && validExtensions.includes(ext)) {
+            // loadImageFromPath handles calibration prompt internally
             await loadImageFromPath(filePath);
           }
         }
@@ -82,16 +88,13 @@ function App() {
     }
   };
 
-  // Determine if we should use client-side rendering for vertical lines
-  const useClientSideVertical = verticalLinePositions.length > 0;
-  const showVerticalOverlay = useClientSideVertical && (viewMode === "vertical" || viewMode === "combined");
+  // Show grid overlay when calibration exists and viewing original
+  const showGridOverlay = gridCalibration !== null && viewMode === "original";
 
-  // For vertical/combined views, use original image as base when using client-side rendering
-  const baseImage = useClientSideVertical && (viewMode === "vertical" || viewMode === "combined")
-    ? (viewMode === "combined" ? horizontalImage : originalImage)
-    : currentImage;
+  // Determine which image to show
+  const displayImage = viewMode === "match" ? matchImage : originalImage;
 
-  // Keyboard shortcuts for switching views (1-4)
+  // Keyboard shortcuts for switching views (1-2)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -106,15 +109,6 @@ function App() {
           if (originalImage) setViewMode("original");
           break;
         case "2":
-          if (horizontalImage) setViewMode("horizontal");
-          break;
-        case "3":
-          if (verticalImage) setViewMode("vertical");
-          break;
-        case "4":
-          if (combinedImage) setViewMode("combined");
-          break;
-        case "5":
           if (matchImage) setViewMode("match");
           break;
       }
@@ -122,18 +116,42 @@ function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [originalImage, horizontalImage, verticalImage, combinedImage, matchImage, setViewMode]);
+  }, [originalImage, matchImage, setViewMode]);
 
   const isViewActive = (mode: ViewMode): boolean => viewMode === mode;
 
   return (
     <div className="app">
       <header className="header">
-        <h1>Thermogram Digitizer</h1>
-        <p className="subtitle">
-          Kandilli Observatory Historical Data Digitization
-        </p>
+        <div className="header-left">
+          <h1>Thermogram Digitizer</h1>
+          <p className="subtitle">
+            Kandilli Observatory Historical Data Digitization
+          </p>
+        </div>
+        <div className="header-right">
+          <button
+            className={`btn btn-calibrate ${needsCalibration ? "btn-calibrate-required" : ""}`}
+            onClick={handleOpenCalibration}
+            disabled={!canCalibrate}
+            title={
+              !canCalibrate
+                ? "Load an image first"
+                : needsCalibration
+                  ? `⚠ Calibration required for ${detectedTemplate?.templateId} - Click to calibrate`
+                  : `Recalibrate grid for ${detectedTemplate?.templateId}`
+            }
+          >
+            {needsCalibration && <span className="calibrate-warning">⚠</span>}
+            Calibrate
+            {detectedTemplate?.templateId && (
+              <span className="calibrate-template">({detectedTemplate.templateId})</span>
+            )}
+          </button>
+        </div>
       </header>
+
+      <CalibrationModal />
 
       <div className="main-layout">
         <aside className="sidebar">
@@ -143,58 +161,26 @@ function App() {
             <TemplateSelector />
 
             <div className="panel">
-              <h2>Process</h2>
-              <button
-                onClick={processGridDetection}
-                disabled={!imagePath || isProcessing}
-                className="btn btn-primary"
-              >
-                {isProcessing ? "Processing..." : "Detect Grid"}
-              </button>
+              <h2>Tools</h2>
               <button
                 onClick={processMatchTemplate}
                 disabled={!imagePath || isProcessing}
                 className="btn btn-primary"
-                style={{ marginTop: "8px" }}
               >
                 {isProcessing ? "Processing..." : "Match 10s"}
               </button>
             </div>
 
             <div className="panel">
-              <h2>View (1-5)</h2>
+              <h2>View (1-2)</h2>
               <div className="view-buttons">
                 <button
                   onClick={() => setViewMode("original")}
                   disabled={!originalImage}
                   className={`btn ${isViewActive("original") ? "btn-active" : ""}`}
-                  title="Original image"
+                  title="Original image with grid overlay"
                 >
-                  1. Original
-                </button>
-                <button
-                  onClick={() => setViewMode("horizontal")}
-                  disabled={!horizontalImage}
-                  className={`btn ${isViewActive("horizontal") ? "btn-active" : ""}`}
-                  title="Horizontal grid lines (green)"
-                >
-                  2. H-Lines
-                </button>
-                <button
-                  onClick={() => setViewMode("vertical")}
-                  disabled={!verticalImage}
-                  className={`btn ${isViewActive("vertical") ? "btn-active" : ""}`}
-                  title="Vertical grid lines (blue)"
-                >
-                  3. V-Lines
-                </button>
-                <button
-                  onClick={() => setViewMode("combined")}
-                  disabled={!combinedImage}
-                  className={`btn ${isViewActive("combined") ? "btn-active" : ""}`}
-                  title="Both horizontal and vertical lines"
-                >
-                  4. Combined
+                  1. Image {gridCalibration ? "+ Grid" : ""}
                 </button>
                 <button
                   onClick={() => setViewMode("match")}
@@ -202,7 +188,7 @@ function App() {
                   className={`btn ${isViewActive("match") ? "btn-active" : ""}`}
                   title="Template matching for '10' labels"
                 >
-                  5. Match
+                  2. Match
                 </button>
               </div>
             </div>
@@ -227,21 +213,21 @@ function App() {
               </div>
             </div>
           )}
-          {baseImage ? (
+          {displayImage ? (
             <div className="image-container" style={{ position: "relative" }}>
               <img
                 ref={imageRef}
-                src={`data:image/png;base64,${baseImage}`}
+                src={`data:image/png;base64,${displayImage}`}
                 alt={viewMode}
                 className="thermogram-image"
                 onLoad={handleImageLoad}
               />
-              {showVerticalOverlay && imageDimensions.width > 0 && (
+              {showGridOverlay && imageDimensions.width > 0 && (
                 <GridOverlay
                   width={imageDimensions.width}
                   height={imageDimensions.height}
                   showVertical={true}
-                  showHorizontal={false}
+                  showHorizontal={true}
                 />
               )}
             </div>

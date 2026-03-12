@@ -299,3 +299,61 @@ export interface ExportOptions {
   datetime_format: string;
   decimal_places: number;
 }
+
+// ============================================================================
+// Grid Calibration Types
+// ============================================================================
+
+export interface CalibrationPoint {
+  x: number;
+  y: number;
+}
+
+export interface GridCalibrationDerived {
+  top_point: CalibrationPoint;
+  bottom_point: CalibrationPoint;
+  curve_center_y: number;
+  curve_coeff_a: number;
+  line_slope?: number;
+  line_mid_x?: number;
+  line_mid_y?: number;
+  line_spacing: number;
+  line_positions: number[];
+  // Horizontal data
+  horizontal_spacing?: number;
+  horizontal_positions?: number[];
+  horizontal_top_temp?: number;
+  horizontal_top_y?: number;
+  // Reference values for alignment mode
+  reference_hour?: number;
+  reference_minute?: number;
+  reference_temp?: number;
+}
+
+export interface SaveCalibrationResponse {
+  success: boolean;
+  error?: string;
+  template_id?: string;
+  calibrated_at?: string;
+  line_spacing?: number;
+  curve_coeff_a?: number;
+  curve_coeff_b?: number;
+  curve_center_y?: number;
+}
+
+export interface GetCalibrationResponse {
+  success: boolean;
+  error?: string;
+  exists?: boolean;
+  template_id?: string;
+  calibrated_at?: string;
+  image_dimensions?: { width: number; height: number };
+  derived?: GridCalibrationDerived;
+}
+
+export interface HasCalibrationResponse {
+  success: boolean;
+  error?: string;
+  template_id?: string;
+  exists?: boolean;
+}

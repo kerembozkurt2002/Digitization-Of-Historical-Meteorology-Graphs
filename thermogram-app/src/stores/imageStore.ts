@@ -21,6 +21,26 @@ interface DetectedTemplate {
   gridColor: string;
 }
 
+interface GridCalibrationData {
+  // Vertical line endpoints (for curve calculation)
+  topPoint: { x: number; y: number };
+  bottomPoint: { x: number; y: number };
+  // Curve parameters
+  curveCenterY: number;
+  curvature: number; // Curvature in pixels (how much apex is offset from base line)
+  // Vertical line positions
+  lineSpacing: number;
+  linePositions: number[];
+  // Horizontal data
+  horizontalSpacing: number;
+  horizontalPositions: number[];
+  horizontalTopTemp: number;
+  // Rotation angle (radians) - for correcting skewed scans
+  rotationAngle?: number;
+  // Metadata
+  calibratedAt: string;
+}
+
 interface ImageState {
   // File state
   imagePath: string | null;
@@ -28,6 +48,9 @@ interface ImageState {
 
   // Template detection
   detectedTemplate: DetectedTemplate | null;
+
+  // Grid calibration (from saved calibration file)
+  gridCalibration: GridCalibrationData | null;
 
   // Chart type and calibration
   chartType: ChartFormat;
@@ -60,6 +83,7 @@ interface ImageState {
   setImagePath: (path: string | null) => void;
   setMetadata: (metadata: ChartMetadata | null) => void;
   setDetectedTemplate: (template: DetectedTemplate | null) => void;
+  setGridCalibration: (calibration: GridCalibrationData | null) => void;
   setChartType: (chartType: ChartFormat) => void;
   setCalibration: (calibration: Partial<CalibrationSettings>) => void;
   resetCalibrationToDefaults: () => void;
@@ -104,6 +128,7 @@ export const useImageStore = create<ImageState>((set) => ({
   imagePath: null,
   metadata: null,
   detectedTemplate: null,
+  gridCalibration: null,
   chartType: initialChartType,
   calibration: initialCalibration,
   originalImage: null,
@@ -138,6 +163,8 @@ export const useImageStore = create<ImageState>((set) => ({
   setMetadata: (metadata) => set({ metadata }),
 
   setDetectedTemplate: (template) => set({ detectedTemplate: template }),
+
+  setGridCalibration: (calibration) => set({ gridCalibration: calibration }),
 
   setChartType: (chartType) =>
     set({
@@ -203,6 +230,7 @@ export const useImageStore = create<ImageState>((set) => ({
       imagePath: null,
       metadata: null,
       detectedTemplate: null,
+      gridCalibration: null,
       chartType: initialChartType,
       calibration: initialCalibration,
       originalImage: null,

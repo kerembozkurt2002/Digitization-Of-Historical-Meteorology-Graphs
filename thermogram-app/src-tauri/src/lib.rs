@@ -92,6 +92,66 @@ pub struct DetectTemplateResponse {
     pub all_scores: Option<std::collections::HashMap<String, f64>>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CalibrationPoint {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CalibrationDerived {
+    pub top_point: CalibrationPoint,
+    pub bottom_point: CalibrationPoint,
+    pub curve_center_y: f64,
+    pub curve_coeff_a: f64,
+    // These fields are optional - not always present in calibration files
+    pub line_slope: Option<f64>,
+    pub line_mid_x: Option<f64>,
+    pub line_mid_y: Option<f64>,
+    pub line_spacing: f64,
+    pub line_positions: Vec<f64>,
+    // Horizontal data
+    pub horizontal_spacing: Option<f64>,
+    pub horizontal_positions: Option<Vec<f64>>,
+    pub horizontal_top_temp: Option<i32>,
+    pub horizontal_top_y: Option<f64>,
+    // Reference values for alignment mode
+    pub reference_hour: Option<i32>,
+    pub reference_minute: Option<i32>,
+    pub reference_temp: Option<i32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SaveCalibrationResponse {
+    pub success: bool,
+    pub error: Option<String>,
+    pub template_id: Option<String>,
+    pub calibrated_at: Option<String>,
+    pub line_spacing: Option<f64>,
+    pub curve_coeff_a: Option<f64>,
+    pub curve_coeff_b: Option<f64>,
+    pub curve_center_y: Option<f64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetCalibrationResponse {
+    pub success: bool,
+    pub error: Option<String>,
+    pub exists: Option<bool>,
+    pub template_id: Option<String>,
+    pub calibrated_at: Option<String>,
+    pub image_dimensions: Option<std::collections::HashMap<String, i32>>,
+    pub derived: Option<CalibrationDerived>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HasCalibrationResponse {
+    pub success: bool,
+    pub error: Option<String>,
+    pub template_id: Option<String>,
+    pub exists: Option<bool>,
+}
+
 /// Get the path to the Python backend
 fn get_backend_path() -> String {
     // In development, use relative path from src-tauri
@@ -228,6 +288,175 @@ fn detect_template(image_path: String) -> Result<DetectTemplateResponse, String>
 }
 
 #[tauri::command]
+fn save_calibration(
+    template_id: String,
+    top_point: CalibrationPoint,
+    bottom_point: CalibrationPoint,
+    center_y: f64,
+    curvature: f64,
+    image_width: i32,
+    image_height: i32
+) -> Result<SaveCalibrationResponse, String> {
+    // Convert points to JSON strings
+    let top_point_json = serde_json::to_string(&top_point)
+        .map_err(|e| format!("Failed to serialize top_point: {}", e))?;
+    let bottom_point_json = serde_json::to_string(&bottom_point)
+        .map_err(|e| format!("Failed to serialize bottom_point: {}", e))?;
+
+    let center_y_str = center_y.to_string();
+    let curvature_str = curvature.to_string();
+    let width_str = image_width.to_string();
+    let height_str = image_height.to_string();
+
+    let args = vec![
+        "save-calibration",
+        "--template-id", &template_id,
+        "--top-point", &top_point_json,
+        "--bottom-point", &bottom_point_json,
+        "--center-y", &center_y_str,
+        "--curvature", &curvature_str,
+        "--image-width", &width_str,
+        "--image-height", &height_str
+    ];
+
+    let output = run_python_command(args)?;
+    serde_json::from_str(&output)
+        .map_err(|e| format!("Failed to parse response: {}", e))
+}
+
+#[tauri::command]
+fn get_calibration(template_id: String) -> Result<GetCalibrationResponse, String> {
+    let args = vec!["get-calibration", "--template-id", &template_id];
+
+    let output = run_python_command(args)?;
+    serde_json::from_str(&output)
+        .map_err(|e| format!("Failed to parse response: {}", e))
+}
+
+#[tauri::command]
+fn has_calibration(template_id: String) -> Result<HasCalibrationResponse, String> {
+    let args = vec!["has-calibration", "--template-id", &template_id];
+
+    let output = run_python_command(args)?;
+    serde_json::from_str(&output)
+        .map_err(|e| format!("Failed to parse response: {}", e))
+}
+
+#[tauri::command]
+fn save_calibration_full(
+    template_id: String,
+    // Vertical calibration
+    vertical_line1_top: CalibrationPoint,
+    vertical_line1_bottom: CalibrationPoint,
+    vertical_line1_hour: String,
+    vertical_line2_top: CalibrationPoint,
+    vertical_line2_hour: String,
+    vertical_last_top: CalibrationPoint,
+    center_y: f64,
+    curvature: f64,
+    vertical_spacing_adjust: f64,
+    // Horizontal calibration
+    horizontal_top: CalibrationPoint,
+    horizontal_top_temp: i32,
+    horizontal_second: CalibrationPoint,
+    horizontal_bottom: CalibrationPoint,
+    horizontal_spacing_adjust: f64,
+    // Image dimensions
+    image_width: i32,
+    image_height: i32,
+) -> Result<SaveCalibrationResponse, String> {
+    // Build a JSON object with all calibration data
+    let calibration_data = serde_json::json!({
+        "template_id": template_id,
+        "vertical": {
+            "line1_top": vertical_line1_top,
+            "line1_bottom": vertical_line1_bottom,
+            "line1_hour": vertical_line1_hour,
+            "line2_top": vertical_line2_top,
+            "line2_hour": vertical_line2_hour,
+            "last_top": vertical_last_top,
+            "center_y": center_y,
+            "curvature": curvature,
+            "spacing_adjust": vertical_spacing_adjust
+        },
+        "horizontal": {
+            "top": horizontal_top,
+            "top_temp": horizontal_top_temp,
+            "second": horizontal_second,
+            "bottom": horizontal_bottom,
+            "spacing_adjust": horizontal_spacing_adjust
+        },
+        "image_width": image_width,
+        "image_height": image_height
+    });
+
+    let calibration_json = calibration_data.to_string();
+
+    let args = vec![
+        "save-calibration-full",
+        "--data", &calibration_json
+    ];
+
+    let output = run_python_command(args)?;
+    serde_json::from_str(&output)
+        .map_err(|e| format!("Failed to parse response: {}", e))
+}
+
+#[tauri::command]
+fn save_calibration_simple(
+    template_id: String,
+    // Horizontal (for rotation) - steps 1-3
+    horizontal_top: CalibrationPoint,
+    horizontal_end_point: CalibrationPoint,
+    horizontal_top_temp: i32,
+    horizontal_spacing: f64,
+    rotation_angle: f64,
+    // Vertical - steps 4-7
+    vertical_line1_top: CalibrationPoint,
+    vertical_line1_bottom: CalibrationPoint,
+    vertical_line1_hour: String,
+    center_y: f64,
+    curvature: f64,
+    vertical_spacing: f64,
+    // Image
+    image_width: i32,
+    image_height: i32,
+) -> Result<SaveCalibrationResponse, String> {
+    // Build JSON object with simplified calibration data
+    let calibration_data = serde_json::json!({
+        "template_id": template_id,
+        "horizontal": {
+            "top": horizontal_top,
+            "end_point": horizontal_end_point,
+            "top_temp": horizontal_top_temp,
+            "spacing": horizontal_spacing,
+            "rotation_angle": rotation_angle
+        },
+        "vertical": {
+            "line1_top": vertical_line1_top,
+            "line1_bottom": vertical_line1_bottom,
+            "line1_hour": vertical_line1_hour,
+            "center_y": center_y,
+            "curvature": curvature,
+            "spacing": vertical_spacing
+        },
+        "image_width": image_width,
+        "image_height": image_height
+    });
+
+    let calibration_json = calibration_data.to_string();
+
+    let args = vec![
+        "save-calibration-simple",
+        "--data", &calibration_json
+    ];
+
+    let output = run_python_command(args)?;
+    serde_json::from_str(&output)
+        .map_err(|e| format!("Failed to parse response: {}", e))
+}
+
+#[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
@@ -246,7 +475,12 @@ pub fn run() {
             flattened_grid,
             straightened_grid,
             match_template,
-            detect_template
+            detect_template,
+            save_calibration,
+            get_calibration,
+            has_calibration,
+            save_calibration_full,
+            save_calibration_simple
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

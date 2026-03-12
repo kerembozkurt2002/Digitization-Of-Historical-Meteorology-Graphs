@@ -1,6 +1,12 @@
 /**
  * GridOverlay - Canvas overlay for real-time grid line rendering.
- * Draws vertical lines with adjustable curvature without backend calls.
+ * Draws vertical lines with calibrated curvature.
+ *
+ * Curve formula (matching CalibrationCanvas):
+ * x(y) = x_base(y) + offset(y)
+ * Where:
+ *   x_base = linear interpolation from top to bottom point
+ *   offset = curvature * (y - top.y) * (bottom.y - y) / [(centerY - top.y) * (bottom.y - centerY)]
  */
 
 import { useEffect, useRef } from "react";
@@ -17,17 +23,16 @@ export function GridOverlay({ width, height, showVertical, showHorizontal }: Gri
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const {
-    verticalLinePositions,
     horizontalLinePositions,
     imageHeight,
     imageWidth,
-    curveCoeffA,
-    curveCoeffB,
     calibration,
+    gridCalibration,
   } = useImageStore();
 
-  // Slider scales the detected curvature (0 = straight, 1 = full detected, 2 = exaggerated)
-  const curvatureScale = (calibration.curvature ?? 0.5) * 2; // Map 0-1 to 0-2
+  const hasCalibration = gridCalibration !== null;
+
+  // Slider for spacing adjustment
   const vSpacing = calibration.vSpacing ?? 1.0;
 
   useEffect(() => {
@@ -44,8 +49,20 @@ export function GridOverlay({ width, height, showVertical, showHorizontal }: Gri
     const scaleX = width / imageWidth;
     const scaleY = height / imageHeight;
 
-    // Draw horizontal lines (green)
-    if (showHorizontal && horizontalLinePositions.length > 0) {
+    // Draw horizontal lines from calibration (straight lines, no curvature)
+    if (showHorizontal && hasCalibration && gridCalibration && gridCalibration.horizontalPositions.length > 0) {
+      ctx.strokeStyle = "#00cc00"; // Green for horizontal lines
+      ctx.lineWidth = 1;
+
+      for (const yPos of gridCalibration.horizontalPositions) {
+        const scaledY = yPos * scaleY;
+        ctx.beginPath();
+        ctx.moveTo(0, scaledY);
+        ctx.lineTo(width, scaledY);
+        ctx.stroke();
+      }
+    } else if (showHorizontal && horizontalLinePositions.length > 0) {
+      // Fallback to auto-detected positions
       ctx.strokeStyle = "#00ff00";
       ctx.lineWidth = 1;
 
@@ -58,43 +75,71 @@ export function GridOverlay({ width, height, showVertical, showHorizontal }: Gri
       }
     }
 
-    // Draw vertical lines (blue) with detected curvature
-    if (showVertical && verticalLinePositions.length > 0) {
-      ctx.strokeStyle = "#0000ff";
+    // Draw vertical lines ONLY if calibration exists
+    if (showVertical && hasCalibration && gridCalibration) {
+      const {
+        topPoint,
+        bottomPoint,
+        linePositions,
+        curveCenterY,
+        curvature,
+      } = gridCalibration;
+
+      if (linePositions.length === 0 || !topPoint || !bottomPoint) return;
+
+      ctx.strokeStyle = "#0066ff"; // Blue for vertical lines
       ctx.lineWidth = 1;
 
-      // Scale the detected coefficients by slider value
-      const a = curveCoeffA * curvatureScale;
-      const b = curveCoeffB * curvatureScale;
-      const yMid = imageHeight / 2;
+      // Reference line (first calibrated line)
+      const refTopX = topPoint.x;
+      const refBottomX = bottomPoint.x;
+      const refTopY = topPoint.y;
+      const refBottomY = bottomPoint.y;
+      const yRange = refBottomY - refTopY;
+
+      // Precompute denominator for offset (avoid division by zero)
+      const denominator = (curveCenterY - refTopY) * (refBottomY - curveCenterY);
+      const hasValidCurvature = Math.abs(denominator) > 0.001 && curvature !== 0;
 
       // Find center of image (x-axis) and reference line closest to it
       const imageCenterX = imageWidth / 2;
-      const centerLineX = verticalLinePositions.reduce((prev, curr) =>
+      const centerLineX = linePositions.reduce((prev, curr) =>
         Math.abs(curr - imageCenterX) < Math.abs(prev - imageCenterX) ? curr : prev
       );
 
-      // Calculate adjusted positions based on vSpacing
-      const adjustedPositions = verticalLinePositions.map(xMid => {
-        const distanceFromCenter = xMid - centerLineX;
+      // Calculate adjusted positions based on vSpacing slider
+      const adjustedPositions = linePositions.map(baseX => {
+        const distanceFromCenter = baseX - centerLineX;
         return centerLineX + distanceFromCenter * vSpacing;
       });
 
-      for (const xMid of adjustedPositions) {
+      for (const lineX of adjustedPositions) {
         ctx.beginPath();
 
-        // Draw curve point by point
-        // Formula keeps middle point fixed:
-        // x = a*(y² - yMid²) + b*(y - yMid) + xMid
-        // When y = yMid: x = xMid (fixed!)
-        for (let y = 0; y < imageHeight; y += 5) {
-          const dy = y - yMid;
-          const x = a * (y * y - yMid * yMid) + b * dy + xMid;
+        // Calculate offset from reference line to this line
+        const offsetFromRef = lineX - refTopX;
+
+        // Draw curve point by point (same formula as CalibrationCanvas)
+        const yStart = Math.max(0, refTopY);
+        const yEnd = Math.min(imageHeight, refBottomY);
+
+        for (let y = yStart; y <= yEnd; y += 3) {
+          // Linear interpolation: straight line from top to bottom
+          const t = yRange !== 0 ? (y - refTopY) / yRange : 0;
+          const xBase = refTopX + (refBottomX - refTopX) * t + offsetFromRef;
+
+          // Parabolic offset: 0 at endpoints, curvature at centerY
+          let offset = 0;
+          if (hasValidCurvature) {
+            offset = curvature * (y - refTopY) * (refBottomY - y) / denominator;
+          }
+
+          const x = xBase + offset;
 
           const scaledX = x * scaleX;
           const scaledY = y * scaleY;
 
-          if (y === 0) {
+          if (y === yStart) {
             ctx.moveTo(scaledX, scaledY);
           } else {
             ctx.lineTo(scaledX, scaledY);
@@ -107,16 +152,14 @@ export function GridOverlay({ width, height, showVertical, showHorizontal }: Gri
   }, [
     width,
     height,
-    verticalLinePositions,
     horizontalLinePositions,
     imageHeight,
     imageWidth,
-    curveCoeffA,
-    curveCoeffB,
-    curvatureScale,
     vSpacing,
     showVertical,
     showHorizontal,
+    hasCalibration,
+    gridCalibration,
   ]);
 
   // Don't render if no dimensions

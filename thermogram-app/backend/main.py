@@ -23,6 +23,11 @@ from pipeline.template_detector import TemplateDetector
 from pipeline.segmenter import Segmenter
 from pipeline.digitizer import Digitizer
 from pipeline.calibrator import Calibrator
+from pipeline.calibration_processor import (
+    save_calibration as save_grid_calibration,
+    load_calibration as load_grid_calibration,
+    has_calibration as has_grid_calibration
+)
 from configs import load_config, SegmentConfig, DigitizeConfig, ChartConfig
 from utils.image_utils import load_image, encode_image_base64, save_image
 
@@ -113,12 +118,12 @@ def cmd_preview(args):
             print(json.dumps(result))
             return 1
 
-        # Only apply deskew (rotation correction) for preview - keep original quality
+        # Normalize image (no automatic deskew - rotation is handled manually by user)
         preprocessor = Preprocessor()
-        deskewed_image, rotation_angle = preprocessor._deskew(preprocessor._normalize(image))
+        normalized_image = preprocessor._normalize(image)
 
         dewarper = Dewarper(debug=False)
-        overlay_result = dewarper.create_grid_overlay(deskewed_image, algorithm, curvature_override=curvature)
+        overlay_result = dewarper.create_grid_overlay(normalized_image, algorithm, curvature_override=curvature)
 
         response = {
             "success": overlay_result.success,
@@ -504,6 +509,212 @@ def cmd_detect_template(args):
         return 1
 
 
+def cmd_save_calibration(args):
+    """Save grid calibration data for a template (new 2-point + sliders system)."""
+    template_id = args.template_id
+    top_point_json = args.top_point
+    bottom_point_json = args.bottom_point
+    center_y = args.center_y
+    curvature = args.curvature
+    image_width = args.image_width
+    image_height = args.image_height
+
+    try:
+        top_point = json.loads(top_point_json)
+        bottom_point = json.loads(bottom_point_json)
+
+        calibration = save_grid_calibration(
+            template_id=template_id,
+            top_point=top_point,
+            bottom_point=bottom_point,
+            center_y=center_y,
+            curvature=curvature,
+            image_width=image_width,
+            image_height=image_height
+        )
+
+        response = {
+            "success": True,
+            "template_id": calibration.template_id,
+            "calibrated_at": calibration.calibrated_at,
+            "line_spacing": calibration.derived.line_spacing,
+            "curve_coeff_a": calibration.derived.curve_coeff_a,
+            "curve_center_y": calibration.derived.curve_center_y
+        }
+
+        print(json.dumps(response))
+        return 0
+
+    except Exception as e:
+        result = {
+            "success": False,
+            "error": str(e)
+        }
+        print(json.dumps(result))
+        return 1
+
+
+def cmd_get_calibration(args):
+    """Get grid calibration data for a template."""
+    template_id = args.template_id
+
+    try:
+        # Load calibration file directly (new format from save_calibration_full)
+        from pipeline.calibration_processor import get_processor
+        processor = get_processor()
+        path = processor._get_calibration_path(template_id)
+
+        if not path.exists():
+            response = {
+                "success": True,
+                "exists": False,
+                "template_id": template_id
+            }
+        else:
+            with open(path, 'r') as f:
+                data = json.load(f)
+
+            # Return the derived data directly
+            derived = data.get('derived', {})
+            vertical = data.get('vertical', {})
+            horizontal = data.get('horizontal', {})
+
+            # Parse reference time from "HH:MM" format
+            ref_time = vertical.get('line1_hour', '12:00')
+            ref_hour, ref_minute = 12, 0
+            if ':' in str(ref_time):
+                parts = str(ref_time).split(':')
+                ref_hour = int(parts[0]) if parts[0].isdigit() else 12
+                ref_minute = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+
+            # Get horizontal top Y from calibration data
+            horizontal_top_y = 0
+            if 'horizontal' in data and 'top' in data['horizontal']:
+                horizontal_top_y = data['horizontal']['top'].get('y', 0)
+
+            response = {
+                "success": True,
+                "exists": True,
+                "template_id": data.get('template_id', template_id),
+                "calibrated_at": data.get('calibrated_at', ''),
+                "image_dimensions": data.get('image_dimensions', {}),
+                "derived": {
+                    "top_point": derived.get('top_point', {"x": 0, "y": 0}),
+                    "bottom_point": derived.get('bottom_point', {"x": 0, "y": 0}),
+                    "curve_center_y": derived.get('curve_center_y', 0),
+                    "curve_coeff_a": derived.get('curve_coeff_a', 0),
+                    "line_spacing": derived.get('line_spacing', 50),
+                    "line_positions": derived.get('line_positions', []),
+                    # Horizontal data
+                    "horizontal_spacing": derived.get('horizontal_spacing', 0),
+                    "horizontal_positions": derived.get('horizontal_positions', []),
+                    "horizontal_top_temp": derived.get('horizontal_top_temp', horizontal.get('top_temp', 0)),
+                    "horizontal_top_y": horizontal_top_y,
+                    # Reference values for alignment mode
+                    "reference_hour": ref_hour,
+                    "reference_minute": ref_minute,
+                    "reference_temp": horizontal.get('top_temp', derived.get('horizontal_top_temp', 0))
+                }
+            }
+
+        print(json.dumps(response))
+        return 0
+
+    except Exception as e:
+        result = {
+            "success": False,
+            "error": str(e)
+        }
+        print(json.dumps(result))
+        return 1
+
+
+def cmd_has_calibration(args):
+    """Check if grid calibration exists for a template."""
+    template_id = args.template_id
+
+    try:
+        exists = has_grid_calibration(template_id)
+
+        response = {
+            "success": True,
+            "template_id": template_id,
+            "exists": exists
+        }
+
+        print(json.dumps(response))
+        return 0
+
+    except Exception as e:
+        result = {
+            "success": False,
+            "error": str(e)
+        }
+        print(json.dumps(result))
+        return 1
+
+
+def cmd_save_calibration_full(args):
+    """Save comprehensive grid calibration data (vertical + horizontal)."""
+    from pipeline.calibration_processor import save_calibration_full
+
+    try:
+        data = json.loads(args.data)
+
+        calibration = save_calibration_full(data)
+
+        response = {
+            "success": True,
+            "template_id": calibration["template_id"],
+            "calibrated_at": calibration["calibrated_at"],
+            "line_spacing": calibration.get("vertical", {}).get("line_spacing"),
+            "curve_coeff_a": calibration.get("vertical", {}).get("curvature"),
+            "curve_center_y": calibration.get("vertical", {}).get("center_y")
+        }
+
+        print(json.dumps(response))
+        return 0
+
+    except Exception as e:
+        result = {
+            "success": False,
+            "error": str(e)
+        }
+        print(json.dumps(result))
+        return 1
+
+
+def cmd_save_calibration_simple(args):
+    """Save simplified grid calibration data (6-step system with pixel spacing)."""
+    from pipeline.calibration_processor import save_calibration_simple
+    from datetime import datetime
+
+    try:
+        data = json.loads(args.data)
+
+        calibration = save_calibration_simple(data)
+
+        response = {
+            "success": True,
+            "template_id": calibration["template_id"],
+            "calibrated_at": calibration["calibrated_at"],
+            "line_spacing": calibration["derived"]["line_spacing"],
+            "curve_coeff_a": calibration["derived"]["curve_coeff_a"],
+            "curve_center_y": calibration["derived"]["curve_center_y"]
+        }
+
+        print(json.dumps(response))
+        return 0
+
+    except Exception as e:
+        result = {
+            "success": False,
+            "error": str(e)
+        }
+        print(json.dumps(result))
+        return 1
+
+
 def cmd_health(args):
     """Health check command."""
     # Import all pipeline stages to verify they load
@@ -610,6 +821,37 @@ def main():
     detect_parser = subparsers.add_parser('detect-template', help='Detect thermogram template type')
     detect_parser.add_argument('--image', '-i', required=True, help='Path to input image')
     detect_parser.set_defaults(func=cmd_detect_template)
+
+    # Save calibration command (new 2-point + sliders system)
+    save_cal_parser = subparsers.add_parser('save-calibration', help='Save grid calibration for a template')
+    save_cal_parser.add_argument('--template-id', '-t', required=True, help='Template ID (e.g., gunluk-1)')
+    save_cal_parser.add_argument('--top-point', required=True, help='JSON object {x,y} for top of line')
+    save_cal_parser.add_argument('--bottom-point', required=True, help='JSON object {x,y} for bottom of line')
+    save_cal_parser.add_argument('--center-y', type=float, required=True, help='Y-coordinate where curve bends')
+    save_cal_parser.add_argument('--curvature', type=float, required=True, help='Curvature coefficient')
+    save_cal_parser.add_argument('--image-width', type=int, required=True, help='Image width in pixels')
+    save_cal_parser.add_argument('--image-height', type=int, required=True, help='Image height in pixels')
+    save_cal_parser.set_defaults(func=cmd_save_calibration)
+
+    # Get calibration command
+    get_cal_parser = subparsers.add_parser('get-calibration', help='Get grid calibration for a template')
+    get_cal_parser.add_argument('--template-id', '-t', required=True, help='Template ID (e.g., gunluk-1)')
+    get_cal_parser.set_defaults(func=cmd_get_calibration)
+
+    # Has calibration command
+    has_cal_parser = subparsers.add_parser('has-calibration', help='Check if calibration exists for a template')
+    has_cal_parser.add_argument('--template-id', '-t', required=True, help='Template ID (e.g., gunluk-1)')
+    has_cal_parser.set_defaults(func=cmd_has_calibration)
+
+    # Save full calibration command (new comprehensive system)
+    save_cal_full_parser = subparsers.add_parser('save-calibration-full', help='Save comprehensive grid calibration')
+    save_cal_full_parser.add_argument('--data', '-d', required=True, help='JSON object with all calibration data')
+    save_cal_full_parser.set_defaults(func=cmd_save_calibration_full)
+
+    # Save simple calibration command (6-step system with pixel spacing)
+    save_cal_simple_parser = subparsers.add_parser('save-calibration-simple', help='Save simplified grid calibration')
+    save_cal_simple_parser.add_argument('--data', '-d', required=True, help='JSON object with calibration data')
+    save_cal_simple_parser.set_defaults(func=cmd_save_calibration_simple)
 
     # Health check command
     health_parser = subparsers.add_parser('health', help='Health check')

@@ -7,7 +7,7 @@ import { useImageStore } from "../../stores/imageStore";
 import "./TemplateSelector.css";
 
 // Template metadata (from template_detector.py)
-const TEMPLATES = {
+export const TEMPLATES = {
   "gunluk-1": { chartType: "daily", period: "1990s", gridColor: "yellow/cream" },
   "gunluk-2": { chartType: "daily", period: "1980", gridColor: "green/olive" },
   "gunluk-3": { chartType: "daily", period: "1980s", gridColor: "orange" },
