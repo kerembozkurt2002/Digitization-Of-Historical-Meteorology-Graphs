@@ -23,26 +23,6 @@ export interface PreviewResponse {
   curve_coeff_b?: number;
 }
 
-export interface DewarpResponse {
-  success: boolean;
-  error?: string;
-  message?: string;
-  grid_lines_detected?: number;
-  original_image?: string;
-  straightened_image?: string;
-  forward_transform?: number[][];
-  inverse_transform?: number[][];
-  output_path?: string;
-}
-
-export interface HealthResponse {
-  success: boolean;
-  status: "healthy" | "degraded" | "unhealthy";
-  message: string;
-  version: string;
-  stages_available?: string[];
-  config_types?: string[];
-}
 
 // ============================================================================
 // Data Point Types
@@ -138,12 +118,7 @@ export interface ProcessingState {
 // View Mode Types
 // ============================================================================
 
-export type ViewMode =
-  | "original"
-  | "horizontal"
-  | "vertical"
-  | "combined"
-  | "match";
+export type ViewMode = "original" | "match";
 
 // ============================================================================
 // Template Matching Types
@@ -324,6 +299,8 @@ export interface GridCalibrationDerived {
   horizontal_positions?: number[];
   horizontal_top_temp?: number;
   horizontal_top_y?: number;
+  // Rotation from horizontal line calibration (step 1-2)
+  rotation_angle?: number;
   // Reference values for alignment mode
   reference_hour?: number;
   reference_minute?: number;
@@ -351,9 +328,3 @@ export interface GetCalibrationResponse {
   derived?: GridCalibrationDerived;
 }
 
-export interface HasCalibrationResponse {
-  success: boolean;
-  error?: string;
-  template_id?: string;
-  exists?: boolean;
-}

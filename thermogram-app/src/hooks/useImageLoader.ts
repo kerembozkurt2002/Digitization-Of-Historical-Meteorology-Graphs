@@ -20,7 +20,7 @@ export function useImageLoader() {
     setImagePath,
     setOriginalImage,
     setProcessingState,
-    setLinePositions,
+    setImageDimensions,
     setDetectedTemplate,
     setGridCalibration,
   } = useImageStore();
@@ -70,14 +70,7 @@ export function useImageLoader() {
         if (result.image_width && result.image_height) {
           imageWidth = result.image_width;
           imageHeight = result.image_height;
-          setLinePositions({
-            vertical: [],
-            horizontal: [],
-            width: imageWidth,
-            height: imageHeight,
-            coeffA: 0,
-            coeffB: 0,
-          });
+          setImageDimensions(imageWidth, imageHeight);
         }
       } else {
         setProcessingState({
@@ -188,7 +181,7 @@ export function useImageLoader() {
     }
 
     return { success: true, needsCalibration, templateId };
-  }, [setImagePath, setOriginalImage, setProcessingState, setLinePositions, setDetectedTemplate, setGridCalibration, resetData, openPrompt, openAlignment]);
+  }, [setImagePath, setOriginalImage, setProcessingState, setImageDimensions, setDetectedTemplate, setGridCalibration, resetData, openPrompt, openAlignment]);
 
   return { loadImageFromPath };
 }

@@ -10,7 +10,6 @@ import argparse
 import json
 import sys
 import os
-import base64
 from pathlib import Path
 
 import cv2
@@ -20,77 +19,7 @@ from pipeline.dewarper import Dewarper
 from pipeline.preprocessor import Preprocessor
 from pipeline.template_matcher import TemplateMatcher
 from pipeline.template_detector import TemplateDetector
-from pipeline.segmenter import Segmenter
-from pipeline.digitizer import Digitizer
-from pipeline.calibrator import Calibrator
-from pipeline.calibration_processor import (
-    save_calibration as save_grid_calibration,
-    load_calibration as load_grid_calibration,
-    has_calibration as has_grid_calibration
-)
-from configs import load_config, SegmentConfig, DigitizeConfig, ChartConfig
 from utils.image_utils import load_image, encode_image_base64, save_image
-
-
-def cmd_dewarp(args):
-    """Dewarp a thermogram image."""
-    image_path = args.image
-
-    if not os.path.exists(image_path):
-        result = {
-            "success": False,
-            "error": f"Image file not found: {image_path}"
-        }
-        print(json.dumps(result))
-        return 1
-
-    try:
-        # Load image using Pillow (handles old TIFF formats)
-        try:
-            image = load_image(image_path)
-        except ValueError as e:
-            result = {
-                "success": False,
-                "error": str(e)
-            }
-            print(json.dumps(result))
-            return 1
-
-        # Dewarp
-        dewarper = Dewarper(debug=False)
-        dewarp_result = dewarper.dewarp(image)
-
-        # Prepare response
-        response = {
-            "success": dewarp_result.success,
-            "message": dewarp_result.message,
-            "grid_lines_detected": dewarp_result.grid_lines_detected,
-        }
-
-        if dewarp_result.success:
-            # Encode images as base64
-            response["original_image"] = encode_image_base64(dewarp_result.original_image)
-            response["straightened_image"] = encode_image_base64(dewarp_result.straightened_image)
-
-            # Include transform matrices
-            response["forward_transform"] = dewarp_result.forward_transform.tolist()
-            response["inverse_transform"] = dewarp_result.inverse_transform.tolist()
-
-            # Save output if specified
-            if args.output:
-                save_image(dewarp_result.straightened_image, args.output)
-                response["output_path"] = args.output
-
-        print(json.dumps(response))
-        return 0 if dewarp_result.success else 1
-
-    except Exception as e:
-        result = {
-            "success": False,
-            "error": str(e)
-        }
-        print(json.dumps(result))
-        return 1
 
 
 def cmd_preview(args):
@@ -157,106 +86,6 @@ def cmd_preview(args):
         return 1
 
 
-def cmd_flattened(args):
-    """Generate a flattened grid visualization (normalized/straightened grid lines only)."""
-    image_path = args.image
-
-    if not os.path.exists(image_path):
-        result = {
-            "success": False,
-            "error": f"Image file not found: {image_path}"
-        }
-        print(json.dumps(result))
-        return 1
-
-    try:
-        try:
-            image = load_image(image_path)
-        except ValueError as e:
-            result = {
-                "success": False,
-                "error": str(e)
-            }
-            print(json.dumps(result))
-            return 1
-
-        dewarper = Dewarper(debug=False)
-        flatten_result = dewarper.create_flattened_grid(image)
-
-        response = {
-            "success": flatten_result.success,
-            "message": flatten_result.message,
-            "vertical_lines": flatten_result.vertical_lines,
-            "horizontal_lines": flatten_result.horizontal_lines,
-            "flattened_image": encode_image_base64(flatten_result.flattened_image)
-        }
-
-        if args.output:
-            save_image(flatten_result.flattened_image, args.output)
-            response["output_path"] = args.output
-
-        print(json.dumps(response))
-        return 0 if flatten_result.success else 1
-
-    except Exception as e:
-        result = {
-            "success": False,
-            "error": str(e)
-        }
-        print(json.dumps(result))
-        return 1
-
-
-def cmd_straightened_grid(args):
-    """Generate final straightened/dewarped image (no colored overlay)."""
-    image_path = args.image
-
-    if not os.path.exists(image_path):
-        result = {
-            "success": False,
-            "error": f"Image file not found: {image_path}"
-        }
-        print(json.dumps(result))
-        return 1
-
-    try:
-        try:
-            image = load_image(image_path)
-        except ValueError as e:
-            result = {
-                "success": False,
-                "error": str(e)
-            }
-            print(json.dumps(result))
-            return 1
-
-        dewarper = Dewarper(debug=False)
-        straightened_result = dewarper.create_straightened_image(image)
-
-        response = {
-            "success": straightened_result.success,
-            "message": straightened_result.message,
-            "vertical_lines": straightened_result.vertical_lines,
-            "horizontal_lines": straightened_result.horizontal_lines,
-            "straightened_grid_image": encode_image_base64(straightened_result.flattened_image)
-        }
-
-        if args.output:
-            save_image(straightened_result.flattened_image, args.output)
-            response["output_path"] = args.output
-
-        print(json.dumps(response))
-        return 0 if straightened_result.success else 1
-
-    except Exception as e:
-        result = {
-            "success": False,
-            "error": str(e)
-        }
-        print(json.dumps(result))
-        return 1
-
-
 def cmd_match_template(args):
     """Find '10' labels in image using template matching."""
     image_path = args.image
@@ -300,150 +129,6 @@ def cmd_match_template(args):
         if args.output:
             save_image(match_result.matched_image, args.output)
             response["output_path"] = args.output
-
-        print(json.dumps(response))
-        return 0
-
-    except Exception as e:
-        result = {
-            "success": False,
-            "error": str(e)
-        }
-        print(json.dumps(result))
-        return 1
-
-
-def cmd_process(args):
-    """Process a thermogram image with specified method and output CSV."""
-    image_path = args.image
-    method = getattr(args, 'method', 'hsv')
-    smooth = getattr(args, 'smooth', False)
-    savgol_window = getattr(args, 'savgol_window', 11)
-    savgol_order = getattr(args, 'savgol_order', 3)
-    output_path = getattr(args, 'output', None)
-
-    if not os.path.exists(image_path):
-        result = {
-            "success": False,
-            "error": f"Image file not found: {image_path}"
-        }
-        print(json.dumps(result))
-        return 1
-
-    try:
-        # Load image
-        try:
-            image = load_image(image_path)
-        except ValueError as e:
-            result = {
-                "success": False,
-                "error": str(e)
-            }
-            print(json.dumps(result))
-            return 1
-
-        # Preprocess: deskew
-        preprocessor = Preprocessor()
-        deskewed_image, rotation_angle = preprocessor._deskew(preprocessor._normalize(image))
-
-        # Create config with specified method and smoothing settings
-        config = load_config('daily')
-
-        # Update segment config
-        config.segment.method = method
-        if method == 'br_subtract':
-            # B-R method defaults are already set in config
-
-            pass
-
-        # Update digitize config
-        config.digitize.smoothing_enabled = smooth
-        config.digitize.savgol_window_length = savgol_window
-        config.digitize.savgol_polyorder = savgol_order
-
-        # Run segmentation
-        segmenter = Segmenter(config=config, debug=False)
-        segment_result = segmenter.segment(deskewed_image)
-
-        if not segment_result.success:
-            result = {
-                "success": False,
-                "error": f"Segmentation failed: {segment_result.message}",
-                "method": method
-            }
-            print(json.dumps(result))
-            return 1
-
-        # Run calibration (basic calibration for now)
-        calibrator = Calibrator(config=config, debug=False)
-        h, w = deskewed_image.shape[:2]
-        calibration_result = calibrator.calibrate(
-            deskewed_image,
-            vertical_lines=None,
-            horizontal_lines=None
-        )
-
-        # Run digitization
-        digitizer = Digitizer(config=config, debug=False)
-        digitize_result = digitizer.digitize(
-            segments=segment_result.segments,
-            calibration=calibration_result,
-            image_width=w
-        )
-
-        if not digitize_result.success:
-            result = {
-                "success": False,
-                "error": f"Digitization failed: {digitize_result.message}",
-                "method": method
-            }
-            print(json.dumps(result))
-            return 1
-
-        # Output results
-        response = {
-            "success": True,
-            "method": method,
-            "smoothing_enabled": smooth,
-            "total_points": digitize_result.total_samples,
-            "interpolated_points": digitize_result.interpolated_samples,
-            "temp_min": digitize_result.temp_min,
-            "temp_max": digitize_result.temp_max,
-            "temp_mean": digitize_result.temp_mean,
-            "temp_std": digitize_result.temp_std,
-            "segment_message": segment_result.message,
-            "digitize_message": digitize_result.message
-        }
-
-        # Save CSV if output specified
-        if output_path:
-            import csv
-            with open(output_path, 'w', newline='') as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerow(['datetime', 'temperature', 'x_pixel', 'y_pixel', 'confidence', 'is_interpolated'])
-                for dp in digitize_result.data_points:
-                    writer.writerow([
-                        dp.datetime,
-                        dp.temperature,
-                        dp.x_pixel,
-                        dp.y_pixel,
-                        dp.confidence,
-                        dp.is_added
-                    ])
-            response["output_path"] = output_path
-
-        # Include data points in JSON response
-        response["data_points"] = [
-            {
-                "datetime": dp.datetime,
-                "temperature": dp.temperature,
-                "x_pixel": dp.x_pixel,
-                "y_pixel": dp.y_pixel,
-                "confidence": dp.confidence,
-                "is_interpolated": dp.is_added
-            }
-            for dp in digitize_result.data_points
-        ]
 
         print(json.dumps(response))
         return 0
@@ -509,57 +194,12 @@ def cmd_detect_template(args):
         return 1
 
 
-def cmd_save_calibration(args):
-    """Save grid calibration data for a template (new 2-point + sliders system)."""
-    template_id = args.template_id
-    top_point_json = args.top_point
-    bottom_point_json = args.bottom_point
-    center_y = args.center_y
-    curvature = args.curvature
-    image_width = args.image_width
-    image_height = args.image_height
-
-    try:
-        top_point = json.loads(top_point_json)
-        bottom_point = json.loads(bottom_point_json)
-
-        calibration = save_grid_calibration(
-            template_id=template_id,
-            top_point=top_point,
-            bottom_point=bottom_point,
-            center_y=center_y,
-            curvature=curvature,
-            image_width=image_width,
-            image_height=image_height
-        )
-
-        response = {
-            "success": True,
-            "template_id": calibration.template_id,
-            "calibrated_at": calibration.calibrated_at,
-            "line_spacing": calibration.derived.line_spacing,
-            "curve_coeff_a": calibration.derived.curve_coeff_a,
-            "curve_center_y": calibration.derived.curve_center_y
-        }
-
-        print(json.dumps(response))
-        return 0
-
-    except Exception as e:
-        result = {
-            "success": False,
-            "error": str(e)
-        }
-        print(json.dumps(result))
-        return 1
-
-
 def cmd_get_calibration(args):
     """Get grid calibration data for a template."""
     template_id = args.template_id
 
     try:
-        # Load calibration file directly (new format from save_calibration_full)
+        # Load calibration file directly
         from pipeline.calibration_processor import get_processor
         processor = get_processor()
         path = processor._get_calibration_path(template_id)
@@ -629,65 +269,9 @@ def cmd_get_calibration(args):
         return 1
 
 
-def cmd_has_calibration(args):
-    """Check if grid calibration exists for a template."""
-    template_id = args.template_id
-
-    try:
-        exists = has_grid_calibration(template_id)
-
-        response = {
-            "success": True,
-            "template_id": template_id,
-            "exists": exists
-        }
-
-        print(json.dumps(response))
-        return 0
-
-    except Exception as e:
-        result = {
-            "success": False,
-            "error": str(e)
-        }
-        print(json.dumps(result))
-        return 1
-
-
-def cmd_save_calibration_full(args):
-    """Save comprehensive grid calibration data (vertical + horizontal)."""
-    from pipeline.calibration_processor import save_calibration_full
-
-    try:
-        data = json.loads(args.data)
-
-        calibration = save_calibration_full(data)
-
-        response = {
-            "success": True,
-            "template_id": calibration["template_id"],
-            "calibrated_at": calibration["calibrated_at"],
-            "line_spacing": calibration.get("vertical", {}).get("line_spacing"),
-            "curve_coeff_a": calibration.get("vertical", {}).get("curvature"),
-            "curve_center_y": calibration.get("vertical", {}).get("center_y")
-        }
-
-        print(json.dumps(response))
-        return 0
-
-    except Exception as e:
-        result = {
-            "success": False,
-            "error": str(e)
-        }
-        print(json.dumps(result))
-        return 1
-
-
 def cmd_save_calibration_simple(args):
-    """Save simplified grid calibration data (6-step system with pixel spacing)."""
+    """Save simplified grid calibration data (7-step system with pixel spacing)."""
     from pipeline.calibration_processor import save_calibration_simple
-    from datetime import datetime
 
     try:
         data = json.loads(args.data)
@@ -715,52 +299,6 @@ def cmd_save_calibration_simple(args):
         return 1
 
 
-def cmd_health(args):
-    """Health check command."""
-    # Import all pipeline stages to verify they load
-    try:
-        from pipeline import (
-            Preprocessor,
-            Dewarper,
-            Calibrator,
-            Segmenter,
-            Digitizer,
-            Validator,
-        )
-        from configs import load_config
-
-        stages = [
-            "1. Preprocessor",
-            "2. Dewarper",
-            "3. Calibrator",
-            "4. Segmenter",
-            "5. Digitizer",
-            "6. Validator",
-        ]
-
-        # Load config to verify
-        config = load_config('daily')
-
-        result = {
-            "success": True,
-            "status": "healthy",
-            "message": "Backend is running with all pipeline stages available",
-            "version": "2.0.0",
-            "stages_available": stages,
-            "config_types": ["daily", "four_day", "weekly"]
-        }
-    except Exception as e:
-        result = {
-            "success": False,
-            "status": "unhealthy",
-            "message": f"Backend error: {str(e)}",
-            "version": "2.0.0"
-        }
-
-    print(json.dumps(result))
-    return 0 if result["success"] else 1
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Thermogram Digitization Backend",
@@ -769,33 +307,15 @@ def main():
 
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
-    # Dewarp command
-    dewarp_parser = subparsers.add_parser('dewarp', help='Dewarp a thermogram image')
-    dewarp_parser.add_argument('--image', '-i', required=True, help='Path to input image')
-    dewarp_parser.add_argument('--output', '-o', help='Path to save dewarped image')
-    dewarp_parser.set_defaults(func=cmd_dewarp)
-
     # Preview command
     preview_parser = subparsers.add_parser('preview', help='Preview grid detection')
     preview_parser.add_argument('--image', '-i', required=True, help='Path to input image')
     preview_parser.add_argument('--output', '-o', help='Path to save preview image')
     preview_parser.add_argument('--algorithm', '-a', type=int, default=1,
-                                help='Algorithm: 1=Canny+Hough, 2=VerticalGradient, 3=LSD, 4=Adaptive+Morphological')
+                                help='Algorithm: 0=Original, 4=Horizontal, 5=Vertical, 6=Combined')
     preview_parser.add_argument('--curvature', '-c', type=float, default=None,
                                 help='Vertical line curvature override (0.0=straight, 1.0=max curve)')
     preview_parser.set_defaults(func=cmd_preview)
-
-    # Flattened grid command
-    flattened_parser = subparsers.add_parser('flattened', help='Generate flattened grid visualization')
-    flattened_parser.add_argument('--image', '-i', required=True, help='Path to input image')
-    flattened_parser.add_argument('--output', '-o', help='Path to save flattened grid image')
-    flattened_parser.set_defaults(func=cmd_flattened)
-
-    # Straightened grid command
-    straightened_parser = subparsers.add_parser('straightened-grid', help='Generate straightened grid only')
-    straightened_parser.add_argument('--image', '-i', required=True, help='Path to input image')
-    straightened_parser.add_argument('--output', '-o', help='Path to save straightened grid image')
-    straightened_parser.set_defaults(func=cmd_straightened_grid)
 
     # Match template command
     match_parser = subparsers.add_parser('match-template', help='Find 10 labels using template matching')
@@ -803,59 +323,20 @@ def main():
     match_parser.add_argument('--output', '-o', help='Path to save matched image')
     match_parser.set_defaults(func=cmd_match_template)
 
-    # Process command (B-R subtraction curve extraction)
-    process_parser = subparsers.add_parser('process', help='Process thermogram with curve extraction')
-    process_parser.add_argument('--image', '-i', required=True, help='Path to input image')
-    process_parser.add_argument('--method', '-m', choices=['hsv', 'br_subtract'], default='hsv',
-                                help='Segmentation method: hsv (original) or br_subtract (B-R channel subtraction)')
-    process_parser.add_argument('--smooth', '-s', action='store_true',
-                                help='Enable Savitzky-Golay smoothing')
-    process_parser.add_argument('--savgol-window', type=int, default=11,
-                                help='Savitzky-Golay window length (odd number, default: 11)')
-    process_parser.add_argument('--savgol-order', type=int, default=3,
-                                help='Savitzky-Golay polynomial order (default: 3)')
-    process_parser.add_argument('--output', '-o', help='Path to save output CSV')
-    process_parser.set_defaults(func=cmd_process)
-
     # Detect template command
     detect_parser = subparsers.add_parser('detect-template', help='Detect thermogram template type')
     detect_parser.add_argument('--image', '-i', required=True, help='Path to input image')
     detect_parser.set_defaults(func=cmd_detect_template)
-
-    # Save calibration command (new 2-point + sliders system)
-    save_cal_parser = subparsers.add_parser('save-calibration', help='Save grid calibration for a template')
-    save_cal_parser.add_argument('--template-id', '-t', required=True, help='Template ID (e.g., gunluk-1)')
-    save_cal_parser.add_argument('--top-point', required=True, help='JSON object {x,y} for top of line')
-    save_cal_parser.add_argument('--bottom-point', required=True, help='JSON object {x,y} for bottom of line')
-    save_cal_parser.add_argument('--center-y', type=float, required=True, help='Y-coordinate where curve bends')
-    save_cal_parser.add_argument('--curvature', type=float, required=True, help='Curvature coefficient')
-    save_cal_parser.add_argument('--image-width', type=int, required=True, help='Image width in pixels')
-    save_cal_parser.add_argument('--image-height', type=int, required=True, help='Image height in pixels')
-    save_cal_parser.set_defaults(func=cmd_save_calibration)
 
     # Get calibration command
     get_cal_parser = subparsers.add_parser('get-calibration', help='Get grid calibration for a template')
     get_cal_parser.add_argument('--template-id', '-t', required=True, help='Template ID (e.g., gunluk-1)')
     get_cal_parser.set_defaults(func=cmd_get_calibration)
 
-    # Has calibration command
-    has_cal_parser = subparsers.add_parser('has-calibration', help='Check if calibration exists for a template')
-    has_cal_parser.add_argument('--template-id', '-t', required=True, help='Template ID (e.g., gunluk-1)')
-    has_cal_parser.set_defaults(func=cmd_has_calibration)
-
-    # Save full calibration command (new comprehensive system)
-    save_cal_full_parser = subparsers.add_parser('save-calibration-full', help='Save comprehensive grid calibration')
-    save_cal_full_parser.add_argument('--data', '-d', required=True, help='JSON object with all calibration data')
-    save_cal_full_parser.set_defaults(func=cmd_save_calibration_full)
-
-    # Save simple calibration command (6-step system with pixel spacing)
-    save_cal_simple_parser = subparsers.add_parser('save-calibration-simple', help='Save simplified grid calibration')
+    # Save simple calibration command (7-step system with pixel spacing)
+    save_cal_simple_parser = subparsers.add_parser('save-calibration-simple', help='Save grid calibration')
     save_cal_simple_parser.add_argument('--data', '-d', required=True, help='JSON object with calibration data')
     save_cal_simple_parser.set_defaults(func=cmd_save_calibration_simple)
-
-    # Health check command
-    health_parser = subparsers.add_parser('health', help='Health check')
-    health_parser.set_defaults(func=cmd_health)
 
     args = parser.parse_args()
 

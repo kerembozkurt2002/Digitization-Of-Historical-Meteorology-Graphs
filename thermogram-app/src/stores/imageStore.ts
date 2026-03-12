@@ -58,19 +58,11 @@ interface ImageState {
 
   // Image data (base64 encoded)
   originalImage: string | null;
-  horizontalImage: string | null;
-  verticalImage: string | null;
-  combinedImage: string | null;
   matchImage: string | null;
 
-  // Line positions for client-side rendering
-  verticalLinePositions: number[];
-  horizontalLinePositions: number[];
+  // Image dimensions (for calibration modal)
   imageHeight: number;
   imageWidth: number;
-  // Curve coefficients: x = a*y² + b*y + x0
-  curveCoeffA: number;
-  curveCoeffB: number;
 
   // View settings
   viewMode: ViewMode;
@@ -88,18 +80,8 @@ interface ImageState {
   setCalibration: (calibration: Partial<CalibrationSettings>) => void;
   resetCalibrationToDefaults: () => void;
   setOriginalImage: (image: string | null) => void;
-  setHorizontalImage: (image: string | null) => void;
-  setVerticalImage: (image: string | null) => void;
-  setCombinedImage: (image: string | null) => void;
   setMatchImage: (image: string | null) => void;
-  setLinePositions: (positions: {
-    vertical: number[];
-    horizontal: number[];
-    height: number;
-    width: number;
-    coeffA: number;
-    coeffB: number;
-  }) => void;
+  setImageDimensions: (width: number, height: number) => void;
   setViewMode: (mode: ViewMode) => void;
   setZoom: (zoom: Partial<ZoomState>) => void;
   resetZoom: () => void;
@@ -132,16 +114,9 @@ export const useImageStore = create<ImageState>((set) => ({
   chartType: initialChartType,
   calibration: initialCalibration,
   originalImage: null,
-  horizontalImage: null,
-  verticalImage: null,
-  combinedImage: null,
   matchImage: null,
-  verticalLinePositions: [],
-  horizontalLinePositions: [],
   imageHeight: 0,
   imageWidth: 0,
-  curveCoeffA: 0,
-  curveCoeffB: 0,
   viewMode: "original",
   zoom: initialZoom,
   processing: initialProcessing,
@@ -152,9 +127,6 @@ export const useImageStore = create<ImageState>((set) => ({
       imagePath: path,
       // DON'T clear originalImage - keep showing old image until new one loads
       // Only clear the processed images
-      horizontalImage: null,
-      verticalImage: null,
-      combinedImage: null,
       matchImage: null,
       viewMode: "original",
       processing: { stage: "preprocessing", progress: 10, message: "Loading image..." },
@@ -184,22 +156,12 @@ export const useImageStore = create<ImageState>((set) => ({
 
   setOriginalImage: (image) => set({ originalImage: image }),
 
-  setHorizontalImage: (image) => set({ horizontalImage: image }),
-
-  setVerticalImage: (image) => set({ verticalImage: image }),
-
-  setCombinedImage: (image) => set({ combinedImage: image }),
-
   setMatchImage: (image) => set({ matchImage: image }),
 
-  setLinePositions: (positions) =>
+  setImageDimensions: (width, height) =>
     set({
-      verticalLinePositions: positions.vertical,
-      horizontalLinePositions: positions.horizontal,
-      imageHeight: positions.height,
-      imageWidth: positions.width,
-      curveCoeffA: positions.coeffA,
-      curveCoeffB: positions.coeffB,
+      imageWidth: width,
+      imageHeight: height,
     }),
 
   setViewMode: (mode) => set({ viewMode: mode }),
@@ -219,9 +181,6 @@ export const useImageStore = create<ImageState>((set) => ({
   clearImages: () =>
     set({
       originalImage: null,
-      horizontalImage: null,
-      verticalImage: null,
-      combinedImage: null,
       matchImage: null,
     }),
 
@@ -234,16 +193,9 @@ export const useImageStore = create<ImageState>((set) => ({
       chartType: initialChartType,
       calibration: initialCalibration,
       originalImage: null,
-      horizontalImage: null,
-      verticalImage: null,
-      combinedImage: null,
       matchImage: null,
-      verticalLinePositions: [],
-      horizontalLinePositions: [],
       imageHeight: 0,
       imageWidth: 0,
-      curveCoeffA: 0,
-      curveCoeffB: 0,
       viewMode: "original",
       zoom: initialZoom,
       processing: initialProcessing,
@@ -253,12 +205,6 @@ export const useImageStore = create<ImageState>((set) => ({
 // Selectors
 export const selectCurrentImage = (state: ImageState): string | null => {
   switch (state.viewMode) {
-    case "horizontal":
-      return state.horizontalImage;
-    case "vertical":
-      return state.verticalImage;
-    case "combined":
-      return state.combinedImage;
     case "match":
       return state.matchImage;
     case "original":

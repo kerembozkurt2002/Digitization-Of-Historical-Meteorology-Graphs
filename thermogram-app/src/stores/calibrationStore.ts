@@ -94,6 +94,8 @@ interface CalibrationState {
   // Alignment mode
   setAlignmentPoint: (point: Point) => void;
   setAlignmentEndPoint: (point: Point) => void;
+  clearAlignmentPoint: () => void;
+  clearAlignmentEndPoint: () => void;
   calculateAlignmentRotation: () => number;
 
   // Step navigation
@@ -225,6 +227,8 @@ export const useCalibrationStore = create<CalibrationState>((set, get) => ({
 
   setAlignmentPoint: (point) => set({ alignmentPoint: point }),
   setAlignmentEndPoint: (point) => set({ alignmentEndPoint: point }),
+  clearAlignmentPoint: () => set({ alignmentPoint: null, alignmentEndPoint: null }),
+  clearAlignmentEndPoint: () => set({ alignmentEndPoint: null }),
 
   calculateAlignmentRotation: () => {
     const { alignmentPoint, alignmentEndPoint } = get();

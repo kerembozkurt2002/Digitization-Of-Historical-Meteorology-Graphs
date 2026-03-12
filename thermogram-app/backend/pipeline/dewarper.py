@@ -1,34 +1,20 @@
 """
-Dewarper Module - Stage 2 of the thermogram processing pipeline.
+Dewarper Module - Grid line detection for thermogram images.
 
-Straightens curved grid lines in thermogram images using displacement mapping.
+Detects horizontal and vertical grid lines for overlay visualization.
 """
 
 import cv2
 import numpy as np
-import time
-from dataclasses import dataclass
 from typing import Tuple, List, Optional
 
-from models import DewarpResult, GridOverlayResult, FlattenedGridResult, TimingInfo
+from models import GridOverlayResult
 from configs import ChartConfig, DewarpConfig, GridDetectionConfig
-from utils.grid_utils import (
-    cluster_lines,
-    extend_lines_to_bounds,
-    detect_lines_morphological,
-    trace_vertical_lines,
-    fit_line_curves,
-    create_displacement_map,
-    apply_displacement_map,
-)
 
 
 class Dewarper:
     """
-    Dewarps thermogram images by detecting and straightening curved grid lines.
-
-    Stage 2 of the pipeline uses vertical line tracing and polynomial fitting
-    to create a displacement map that straightens the grid.
+    Detects grid lines in thermogram images for overlay visualization.
     """
 
     def __init__(
@@ -51,101 +37,6 @@ class Dewarper:
         # Detected curve coefficients (set by detect_vertical_lines)
         self._detected_curve_a = 0.0
         self._detected_curve_b = 0.0
-
-    def dewarp(self, image: np.ndarray) -> DewarpResult:
-        """
-        Dewarp thermogram image by tracing vertical grid lines and straightening them.
-
-        Algorithm:
-        1. Create a binary mask of vertical lines using morphological operations
-        2. Scan the mask at regular y-intervals to find x-positions of each line
-        3. For each detected vertical line, compute its curve (x as function of y)
-        4. Create displacement map to straighten all curves
-        5. Apply remapping
-
-        Args:
-            image: Input image (BGR format)
-
-        Returns:
-            DewarpResult with straightened image and metadata
-        """
-        start_time = time.perf_counter()
-
-        try:
-            h, w = image.shape[:2]
-            cfg = self.dewarp_config
-
-            # Step 1: Create vertical line mask
-            vertical_mask = self._create_vertical_mask(image)
-
-            if self.debug:
-                self.debug_images['vertical_mask'] = vertical_mask
-
-            # Step 2: Trace vertical lines
-            line_traces = trace_vertical_lines(
-                vertical_mask,
-                num_samples=cfg.num_y_samples,
-                min_line_spacing=cfg.min_line_spacing
-            )
-
-            if len(line_traces) < 3:
-                return self._create_failure_result(
-                    image, start_time,
-                    f"Not enough vertical lines detected: {len(line_traces)}"
-                )
-
-            # Step 3: Fit curves to lines
-            line_curves = fit_line_curves(
-                line_traces,
-                polynomial_degree=cfg.polynomial_degree
-            )
-
-            if len(line_curves) < 3:
-                return self._create_failure_result(
-                    image, start_time,
-                    "Failed to fit curves to lines"
-                )
-
-            # Step 4: Create displacement map
-            displacement_map = create_displacement_map(
-                (h, w),
-                line_curves,
-                max_displacement_ratio=cfg.max_displacement_ratio,
-                gaussian_kernel_size=cfg.gaussian_kernel_size
-            )
-
-            if self.debug:
-                self.debug_images['displacement_map'] = displacement_map
-
-            # Step 5: Apply remapping
-            straightened = apply_displacement_map(image, displacement_map)
-
-            end_time = time.perf_counter()
-            duration_ms = (end_time - start_time) * 1000
-
-            return DewarpResult(
-                original_image=image,
-                straightened_image=straightened,
-                forward_transform=np.eye(3),
-                inverse_transform=np.eye(3),
-                grid_lines_detected=len(line_curves),
-                success=True,
-                message=f"Dewarping successful - {len(line_curves)} lines straightened",
-                timing=TimingInfo(
-                    stage_name="dewarp",
-                    start_time=start_time,
-                    end_time=end_time,
-                    duration_ms=duration_ms
-                ),
-                vertical_lines_count=len(line_curves),
-                displacement_map=displacement_map
-            )
-
-        except Exception as e:
-            return self._create_failure_result(
-                image, start_time,
-                f"Error during dewarping: {str(e)}"
-            )
 
     def _create_vertical_mask(self, image: np.ndarray) -> np.ndarray:
         """
@@ -184,30 +75,6 @@ class Dewarper:
         vertical_mask = cv2.morphologyEx(vertical_mask, cv2.MORPH_CLOSE, kernel_close)
 
         return vertical_mask
-
-    def _create_failure_result(
-        self,
-        image: np.ndarray,
-        start_time: float,
-        message: str
-    ) -> DewarpResult:
-        """Create a failure result with timing."""
-        end_time = time.perf_counter()
-        return DewarpResult(
-            original_image=image,
-            straightened_image=image,
-            forward_transform=np.eye(3),
-            inverse_transform=np.eye(3),
-            grid_lines_detected=0,
-            success=False,
-            message=message,
-            timing=TimingInfo(
-                stage_name="dewarp",
-                start_time=start_time,
-                end_time=end_time,
-                duration_ms=(end_time - start_time) * 1000
-            )
-        )
 
     # =========================================================================
     # Horizontal Line Detection (for grid overlay)
@@ -444,33 +311,6 @@ class Dewarper:
 
         return [np.array([0, y, w - 1, y]) for y in grouped]
 
-    def _group_and_create_lines(
-        self,
-        y_positions: List[int],
-        width: int,
-        group_distance: int = 10
-    ) -> List[np.ndarray]:
-        """Group nearby y positions and create full-width line arrays."""
-        if not y_positions:
-            return []
-
-        y_positions = sorted(y_positions)
-        filtered_lines = []
-        current_group = [y_positions[0]]
-
-        for y in y_positions[1:]:
-            if y - current_group[-1] <= group_distance:
-                current_group.append(y)
-            else:
-                center = int(np.mean(current_group))
-                filtered_lines.append(center)
-                current_group = [y]
-
-        center = int(np.mean(current_group))
-        filtered_lines.append(center)
-
-        return [np.array([0, y, width - 1, y]) for y in filtered_lines]
-
     # =========================================================================
     # Vertical Line Detection (curved/cylindrical lines)
     # =========================================================================
@@ -659,7 +499,7 @@ class Dewarper:
             x += grid_spacing
         all_positions = sorted(all_positions)
 
-        # Step 6: Create polylines by applying template to each detected position
+        # Step 9: Create polylines by applying template to each detected position
         polylines = []
         y_full = np.arange(0, h, 5)
         y_mid = h / 2
@@ -667,10 +507,6 @@ class Dewarper:
         for target_x in all_positions:
             # Apply template shape centered at y_mid (symmetric curve)
             # Formula: x = a * (y - y_mid)^2 + target_x
-            # This ensures:
-            # - At y = y_mid (center): x = target_x (fixed point)
-            # - At y = 0 (top): x = a * y_mid^2 + target_x
-            # - At y = h (bottom): x = a * y_mid^2 + target_x (same as top!)
             x_vals = avg_a * (y_full - y_mid)**2 + target_x
 
             x_vals = np.clip(x_vals, 0, w - 1)
@@ -832,116 +668,8 @@ class Dewarper:
                 image_width=w
             )
 
-    def create_flattened_grid(self, image: np.ndarray) -> FlattenedGridResult:
-        """
-        Create an image showing only the detected horizontal grid lines.
-
-        Args:
-            image: Input image
-
-        Returns:
-            FlattenedGridResult with grid-only image
-        """
-        try:
-            h, w = image.shape[:2]
-            horizontal_lines = self.detect_horizontal_lines(image)
-
-            flattened = np.ones((h, w, 3), dtype=np.uint8) * 255
-
-            for line in horizontal_lines:
-                y = line[1]
-                cv2.line(flattened, (0, y), (w-1, y), (0, 255, 0), 1)
-
-            return FlattenedGridResult(
-                flattened_image=flattened,
-                vertical_lines=0,
-                horizontal_lines=len(horizontal_lines),
-                success=True,
-                message=f"Flattened grid with {len(horizontal_lines)} horizontal lines"
-            )
-
-        except Exception as e:
-            h, w = image.shape[:2]
-            return FlattenedGridResult(
-                flattened_image=np.ones((h, w, 3), dtype=np.uint8) * 255,
-                vertical_lines=0,
-                horizontal_lines=0,
-                success=False,
-                message=f"Error creating flattened grid: {str(e)}"
-            )
-
-    def create_straightened_image(self, image: np.ndarray) -> FlattenedGridResult:
-        """
-        Returns the dewarped/straightened image only.
-
-        Args:
-            image: Input image
-
-        Returns:
-            FlattenedGridResult with straightened image
-        """
-        try:
-            dewarp_result = self.dewarp(image)
-
-            if not dewarp_result.success:
-                return FlattenedGridResult(
-                    flattened_image=image,
-                    vertical_lines=0,
-                    horizontal_lines=0,
-                    success=False,
-                    message=f"Dewarping failed: {dewarp_result.message}"
-                )
-
-            return FlattenedGridResult(
-                flattened_image=dewarp_result.straightened_image,
-                vertical_lines=dewarp_result.grid_lines_detected,
-                horizontal_lines=0,
-                success=True,
-                message="Straightened image created successfully"
-            )
-
-        except Exception as e:
-            return FlattenedGridResult(
-                flattened_image=image,
-                vertical_lines=0,
-                horizontal_lines=0,
-                success=False,
-                message=f"Error creating straightened image: {str(e)}"
-            )
-
-
-def dewarp_image(
-    image_path: str,
-    output_path: str = None,
-    config: Optional[ChartConfig] = None
-) -> DewarpResult:
-    """
-    Convenience function to dewarp an image file.
-
-    Args:
-        image_path: Path to input image
-        output_path: Path to save output (optional)
-        config: Chart configuration (optional)
-
-    Returns:
-        DewarpResult
-    """
-    from utils.image_utils import load_image, save_image
-
-    image = load_image(image_path)
-    dewarper = Dewarper(config=config, debug=False)
-    result = dewarper.dewarp(image)
-
-    if output_path and result.success:
-        save_image(result.straightened_image, output_path)
-
-    return result
-
 
 __all__ = [
     'Dewarper',
-    'DewarpResult',
     'GridOverlayResult',
-    'FlattenedGridResult',
-    'dewarp_image',
 ]

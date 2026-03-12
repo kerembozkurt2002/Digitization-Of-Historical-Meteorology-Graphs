@@ -40,6 +40,29 @@
   gap: 1rem;
 }
 
+.btn-align {
+  background-color: #0f3460;
+  color: white;
+  padding: 0.625rem 1.25rem;
+  border: 1px solid #0066ff;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-align:hover:not(:disabled) {
+  background-color: #0066ff;
+  color: white;
+}
+
+.btn-align:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: #8b8b8b;
+}
+
 .btn-calibrate {
   background-color: #0f3460;
   color: white;

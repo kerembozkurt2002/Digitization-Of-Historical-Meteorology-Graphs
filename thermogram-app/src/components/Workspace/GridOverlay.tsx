@@ -1,6 +1,6 @@
 /**
  * GridOverlay - Canvas overlay for real-time grid line rendering.
- * Draws vertical lines with calibrated curvature.
+ * Draws vertical and horizontal lines with calibrated curvature.
  *
  * Curve formula (matching CalibrationCanvas):
  * x(y) = x_base(y) + offset(y)
@@ -23,7 +23,6 @@ export function GridOverlay({ width, height, showVertical, showHorizontal }: Gri
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const {
-    horizontalLinePositions,
     imageHeight,
     imageWidth,
     calibration,
@@ -49,24 +48,13 @@ export function GridOverlay({ width, height, showVertical, showHorizontal }: Gri
     const scaleX = width / imageWidth;
     const scaleY = height / imageHeight;
 
-    // Draw horizontal lines from calibration (straight lines, no curvature)
+    // Draw horizontal lines from calibration (straight lines)
+    // Image is already rotated, so no rotation needed here
     if (showHorizontal && hasCalibration && gridCalibration && gridCalibration.horizontalPositions.length > 0) {
       ctx.strokeStyle = "#00cc00"; // Green for horizontal lines
       ctx.lineWidth = 1;
 
       for (const yPos of gridCalibration.horizontalPositions) {
-        const scaledY = yPos * scaleY;
-        ctx.beginPath();
-        ctx.moveTo(0, scaledY);
-        ctx.lineTo(width, scaledY);
-        ctx.stroke();
-      }
-    } else if (showHorizontal && horizontalLinePositions.length > 0) {
-      // Fallback to auto-detected positions
-      ctx.strokeStyle = "#00ff00";
-      ctx.lineWidth = 1;
-
-      for (const yPos of horizontalLinePositions) {
         const scaledY = yPos * scaleY;
         ctx.beginPath();
         ctx.moveTo(0, scaledY);
@@ -152,7 +140,6 @@ export function GridOverlay({ width, height, showVertical, showHorizontal }: Gri
   }, [
     width,
     height,
-    horizontalLinePositions,
     imageHeight,
     imageWidth,
     vSpacing,

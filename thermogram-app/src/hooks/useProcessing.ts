@@ -5,7 +5,7 @@
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useImageStore, selectIsProcessing } from "../stores/imageStore";
-import type { PreviewResponse, MatchTemplateResponse, DetectTemplateResponse, GetCalibrationResponse } from "../types";
+import type { MatchTemplateResponse, DetectTemplateResponse, GetCalibrationResponse } from "../types";
 
 export function useProcessing() {
   const {
@@ -14,12 +14,7 @@ export function useProcessing() {
     chartType,
     detectedTemplate,
     gridCalibration,
-    setOriginalImage,
-    setHorizontalImage,
-    setVerticalImage,
-    setCombinedImage,
     setMatchImage,
-    setLinePositions,
     setProcessingState,
     setViewMode,
     setDetectedTemplate,
@@ -27,109 +22,6 @@ export function useProcessing() {
   } = useImageStore();
 
   const isProcessing = useImageStore(selectIsProcessing);
-
-  const processGridDetection = useCallback(async () => {
-    if (!imagePath) {
-      setProcessingState({
-        stage: "error",
-        message: "Please select an image first.",
-      });
-      return;
-    }
-
-    setProcessingState({
-      stage: "preprocessing",
-      progress: 10,
-      message: "Detecting horizontal lines...",
-    });
-
-    try {
-      // Get horizontal lines (mode 4)
-      const horizontalResult = await invoke<PreviewResponse>("preview_grid", {
-        imagePath: imagePath,
-        algorithm: 4,
-      });
-
-      if (horizontalResult.success && horizontalResult.preview_image) {
-        setHorizontalImage(horizontalResult.preview_image);
-      }
-
-      setProcessingState({
-        stage: "dewarping",
-        progress: 40,
-        message: "Detecting vertical lines...",
-      });
-
-      // Get vertical lines (mode 5) - no curvature, we'll render client-side
-      const verticalResult = await invoke<PreviewResponse>("preview_grid", {
-        imagePath: imagePath,
-        algorithm: 5,
-      });
-
-      if (verticalResult.success) {
-        // Store line positions and curve coefficients for client-side rendering
-        if (verticalResult.vertical_line_positions) {
-          setLinePositions({
-            vertical: verticalResult.vertical_line_positions,
-            horizontal: horizontalResult.horizontal_line_positions ?? [],
-            height: verticalResult.image_height ?? 0,
-            width: verticalResult.image_width ?? 0,
-            coeffA: verticalResult.curve_coeff_a ?? 0,
-            coeffB: verticalResult.curve_coeff_b ?? 0,
-          });
-        }
-        // Still store the preview image as fallback
-        if (verticalResult.preview_image) {
-          setVerticalImage(verticalResult.preview_image);
-        }
-      }
-
-      setProcessingState({
-        stage: "calibrating",
-        progress: 70,
-        message: "Creating combined view...",
-      });
-
-      // Get combined view (mode 6) - no curvature, we'll render client-side
-      const combinedResult = await invoke<PreviewResponse>("preview_grid", {
-        imagePath: imagePath,
-        algorithm: 6,
-      });
-
-      if (combinedResult.success && combinedResult.preview_image) {
-        setCombinedImage(combinedResult.preview_image);
-      }
-
-      const hLines = horizontalResult.horizontal_lines ?? 0;
-      const vLines = verticalResult.vertical_lines ?? 0;
-
-      // Check if calibration exists for vertical grid rendering
-      const currentGridCalibration = useImageStore.getState().gridCalibration;
-
-      if (currentGridCalibration) {
-        setProcessingState({
-          stage: "complete",
-          progress: 100,
-          message: `Done! H:${hLines} V:${vLines} | ${calibration.tempMin}°C - ${calibration.tempMax}°C, start ${calibration.startHour}:00`,
-        });
-      } else {
-        setProcessingState({
-          stage: "complete",
-          progress: 100,
-          message: `H:${hLines} detected | ⚠ Vertical grid requires calibration`,
-        });
-      }
-
-      setViewMode("combined");
-    } catch (err) {
-      setProcessingState({
-        stage: "error",
-        progress: 0,
-        message: `Error: ${err}`,
-        error: String(err),
-      });
-    }
-  }, [imagePath, calibration, setOriginalImage, setHorizontalImage, setVerticalImage, setCombinedImage, setProcessingState, setViewMode]);
 
   const processMatchTemplate = useCallback(async () => {
     if (!imagePath) {
@@ -197,6 +89,8 @@ export function useProcessing() {
           horizontalSpacing: result.derived.horizontal_spacing ?? 0,
           horizontalPositions: result.derived.horizontal_positions ?? [],
           horizontalTopTemp: result.derived.horizontal_top_temp ?? 0,
+          // Rotation from horizontal line calibration (step 1-2)
+          rotationAngle: result.derived.rotation_angle ?? 0,
           // Metadata
           calibratedAt: result.calibrated_at ?? "",
         });
@@ -250,7 +144,6 @@ export function useProcessing() {
   }, [imagePath, setDetectedTemplate, setGridCalibration, loadGridCalibration]);
 
   return {
-    processGridDetection,
     processMatchTemplate,
     detectTemplate,
     loadGridCalibration,

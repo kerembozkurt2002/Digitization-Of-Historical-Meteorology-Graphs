@@ -14,6 +14,7 @@ import { useImageStore } from "../../stores/imageStore";
 import { useProcessing } from "../../hooks/useProcessing";
 import { CalibrationCanvas } from "./CalibrationCanvas";
 import { TEMPLATES } from "../Sidebar/TemplateSelector";
+import { rotateImage } from "../../utils/imageRotation";
 import type { SaveCalibrationResponse } from "../../types";
 import "./CalibrationModal.css";
 
@@ -32,6 +33,8 @@ export function CalibrationModal() {
     alignmentPoint,
     alignmentEndPoint,
     calculateAlignmentRotation,
+    clearAlignmentPoint,
+    clearAlignmentEndPoint,
     startFullCalibration,
     // Horizontal data (steps 1-3)
     horizontalTop,
@@ -63,11 +66,15 @@ export function CalibrationModal() {
     setTemplateId,
   } = useCalibrationStore();
 
-  const { originalImage, setGridCalibration } = useImageStore();
+  const { originalImage, setOriginalImage, setGridCalibration } = useImageStore();
   const { loadGridCalibration } = useProcessing();
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [alignmentStep, setAlignmentStep] = useState<1 | 2>(1);
+
+  // Alignment step derived from point state (no useState needed)
+  // Step 1: waiting for first click (alignmentPoint === null)
+  // Step 2: waiting for second click (alignmentPoint !== null)
+  const alignmentStep = alignmentPoint === null ? 1 : 2;
 
   // Format time for display
   const formatTimeDisplay = (hour: number, minute: number) => {
@@ -77,9 +84,11 @@ export function CalibrationModal() {
   // Convert radians to degrees for display
   const radToDeg = (rad: number) => (rad * 180 / Math.PI).toFixed(2);
 
-  // Handle alignment apply - generate grid positions from anchor point with rotation
-  const handleApplyAlignment = useCallback(() => {
-    if (!alignmentPoint || !alignmentEndPoint || !savedCalibration) return;
+  const [isApplyingAlignment, setIsApplyingAlignment] = useState(false);
+
+  // Handle alignment apply - rotate image first, then apply grid
+  const handleApplyAlignment = useCallback(async () => {
+    if (!alignmentPoint || !alignmentEndPoint || !savedCalibration || !originalImage) return;
 
     const {
       verticalSpacing,
@@ -93,66 +102,88 @@ export function CalibrationModal() {
     // Calculate rotation from the two alignment points
     const rotation = calculateAlignmentRotation();
 
-    // Alignment point IS the new topPoint (after rotation)
-    const offsetX = alignmentPoint.x - origTop.x;
-    const offsetY = alignmentPoint.y - origTop.y;
+    setIsApplyingAlignment(true);
 
-    // Apply offset to get new reference points
-    const newTopPoint = { x: alignmentPoint.x, y: alignmentPoint.y };
-    const newBottomPoint = { x: origBottom.x + offsetX, y: origBottom.y + offsetY };
-    const newCenterY = origCenterY + offsetY;
-
-    // Generate vertical line positions (to the right only)
-    const verticalPositions: number[] = [];
-    let x = alignmentPoint.x;
-    while (x <= imageWidth + verticalSpacing) {
-      if (x >= 0 && x <= imageWidth) {
-        verticalPositions.push(x);
+    try {
+      // Rotate image around alignmentPoint (first click)
+      if (rotation !== 0) {
+        const result = await rotateImage(
+          originalImage,
+          rotation,
+          alignmentPoint.x,
+          alignmentPoint.y
+        );
+        setOriginalImage(result.rotatedImage);
       }
-      x += verticalSpacing;
-    }
 
-    // Generate horizontal line positions (starting from alignment Y, going down)
-    const horizontalPositions: number[] = [];
-    let y = alignmentPoint.y;
-    while (y <= imageHeight + horizontalSpacing) {
-      if (y >= 0 && y <= imageHeight) {
-        horizontalPositions.push(y);
+      // After rotation, alignmentPoint stays the same (it's the center)
+      // topPoint = alignmentPoint
+      // bottomPoint = alignmentPoint + original offset (no rotation needed, image is already rotated)
+      const origDx = origBottom.x - origTop.x;
+      const origDy = origBottom.y - origTop.y;
+
+      const newTopPoint = { x: alignmentPoint.x, y: alignmentPoint.y };
+      const newBottomPoint = {
+        x: alignmentPoint.x + origDx,
+        y: alignmentPoint.y + origDy,
+      };
+
+      const origCenterOffset = origCenterY - origTop.y;
+      const newCenterY = alignmentPoint.y + origCenterOffset;
+
+      // Generate vertical line positions (to the right only)
+      const verticalPositions: number[] = [];
+      let x = alignmentPoint.x;
+      while (x <= imageWidth + verticalSpacing) {
+        if (x >= 0 && x <= imageWidth) {
+          verticalPositions.push(x);
+        }
+        x += verticalSpacing;
       }
-      y += horizontalSpacing;
+
+      // Generate horizontal line positions (starting from alignment Y, going down)
+      const horizontalPositions: number[] = [];
+      let y = alignmentPoint.y;
+      while (y <= imageHeight + horizontalSpacing) {
+        if (y >= 0 && y <= imageHeight) {
+          horizontalPositions.push(y);
+        }
+        y += horizontalSpacing;
+      }
+
+      // Update grid calibration in image store
+      setGridCalibration({
+        topPoint: newTopPoint,
+        bottomPoint: newBottomPoint,
+        curveCenterY: newCenterY,
+        curvature: curvature,
+        lineSpacing: verticalSpacing,
+        linePositions: verticalPositions,
+        horizontalSpacing: horizontalSpacing,
+        horizontalPositions: horizontalPositions,
+        horizontalTopTemp: savedCalibration.referenceTemp,
+        calibratedAt: new Date().toISOString(),
+      });
+
+      closeModal();
+    } catch (err) {
+      console.error("Failed to apply alignment:", err);
+    } finally {
+      setIsApplyingAlignment(false);
     }
+  }, [alignmentPoint, alignmentEndPoint, savedCalibration, originalImage, imageWidth, imageHeight, setOriginalImage, setGridCalibration, closeModal, calculateAlignmentRotation]);
 
-    // Update grid calibration in image store
-    setGridCalibration({
-      topPoint: newTopPoint,
-      bottomPoint: newBottomPoint,
-      curveCenterY: newCenterY,
-      curvature: curvature,
-      lineSpacing: verticalSpacing,
-      linePositions: verticalPositions,
-      horizontalSpacing: horizontalSpacing,
-      horizontalPositions: horizontalPositions,
-      horizontalTopTemp: savedCalibration.referenceTemp,
-      rotationAngle: rotation,
-      calibratedAt: new Date().toISOString(),
-    });
-
-    closeModal();
-  }, [alignmentPoint, alignmentEndPoint, savedCalibration, imageWidth, imageHeight, setGridCalibration, closeModal, calculateAlignmentRotation]);
-
-  // Reset alignment step when alignment mode opens
-  useEffect(() => {
-    if (phase === "alignment") {
-      setAlignmentStep(1);
+  // Handle alignment back button
+  // Priority: clear endPoint first, then clear alignmentPoint
+  const handleAlignmentBack = useCallback(() => {
+    if (alignmentEndPoint) {
+      // Second point exists -> clear it (stays in step 2 since alignmentPoint still exists)
+      clearAlignmentEndPoint();
+    } else if (alignmentPoint) {
+      // Only first point exists -> clear it (goes to step 1)
+      clearAlignmentPoint();
     }
-  }, [phase]);
-
-  // Progress alignment when first point is clicked
-  useEffect(() => {
-    if (phase === "alignment" && alignmentPoint && alignmentStep === 1) {
-      setAlignmentStep(2);
-    }
-  }, [phase, alignmentPoint, alignmentStep]);
+  }, [alignmentPoint, alignmentEndPoint, clearAlignmentEndPoint, clearAlignmentPoint]);
 
   const canProceed = useCallback(() => {
     switch (currentStep) {
@@ -230,13 +261,32 @@ export function CalibrationModal() {
     closeModal, loadGridCalibration
   ]);
 
-  const handleNext = useCallback(() => {
+  const [isRotating, setIsRotating] = useState(false);
+
+  const handleNext = useCallback(async () => {
     if (currentStep === 7 && canProceed()) {
       handleSave();
     } else if (canProceed()) {
+      // Step 2 -> Step 3: Rotate image before proceeding to vertical calibration
+      if (currentStep === 2 && horizontalTop && rotationAngle !== 0 && originalImage) {
+        setIsRotating(true);
+        try {
+          const result = await rotateImage(
+            originalImage,
+            rotationAngle,
+            horizontalTop.x,
+            horizontalTop.y
+          );
+          setOriginalImage(result.rotatedImage);
+        } catch (err) {
+          console.error("Failed to rotate image:", err);
+        } finally {
+          setIsRotating(false);
+        }
+      }
       nextStep();
     }
-  }, [currentStep, canProceed, nextStep, handleSave]);
+  }, [currentStep, canProceed, nextStep, handleSave, horizontalTop, rotationAngle, originalImage, setOriginalImage]);
 
   const handleZoomIn = useCallback(() => setZoom(zoom + 0.25), [zoom, setZoom]);
   const handleZoomOut = useCallback(() => setZoom(zoom - 0.25), [zoom, setZoom]);
@@ -348,13 +398,20 @@ export function CalibrationModal() {
               <button className="btn btn-small" onClick={startFullCalibration}>
                 Re-calibrate
               </button>
+              <button
+                className="btn btn-secondary"
+                onClick={handleAlignmentBack}
+                disabled={!alignmentPoint}
+              >
+                Back
+              </button>
               <button className="btn btn-secondary" onClick={closeModal}>
                 Cancel
               </button>
               <button
                 className="btn btn-primary"
                 onClick={handleApplyAlignment}
-                disabled={!alignmentPoint || !alignmentEndPoint}
+                disabled={!alignmentPoint || !alignmentEndPoint || isApplyingAlignment}
               >
                 Apply Grid
               </button>
@@ -639,11 +696,11 @@ export function CalibrationModal() {
             <button
               className="btn btn-primary"
               onClick={handleNext}
-              disabled={!canProceed() || isSaving}
+              disabled={!canProceed() || isSaving || isRotating}
             >
               {currentStep === 7
                 ? (isSaving ? "Saving..." : "Finish")
-                : "Next"}
+                : (isRotating ? "Rotating..." : "Next")}
             </button>
           </div>
         </div>

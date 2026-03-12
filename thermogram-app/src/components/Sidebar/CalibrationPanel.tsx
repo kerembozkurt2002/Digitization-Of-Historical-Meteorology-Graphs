@@ -20,8 +20,7 @@ export function CalibrationPanel() {
     imagePath,
     chartType,
     calibration,
-    viewMode,
-    verticalLinePositions,
+    gridCalibration,
     setChartType,
     setCalibration,
     resetCalibrationToDefaults,
@@ -79,9 +78,8 @@ export function CalibrationPanel() {
     }
   };
 
-  // Show sliders when we have vertical line positions detected
-  const showVerticalSliders = verticalLinePositions.length > 0 &&
-    (viewMode === "vertical" || viewMode === "combined");
+  // Show sliders when we have grid calibration
+  const showVerticalSliders = gridCalibration !== null && gridCalibration.linePositions.length > 0;
 
   return (
     <div className={`panel calibration-panel ${isExpanded ? "expanded" : "collapsed"}`}>

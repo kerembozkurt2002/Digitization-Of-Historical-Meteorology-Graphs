@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { invoke } from "@tauri-apps/api/core";
 import { useImageStore } from "./stores/imageStore";
 import { useCalibrationStore } from "./stores/calibrationStore";
 import { UploadPanel } from "./components/Sidebar/UploadPanel";
@@ -9,7 +10,7 @@ import { TemplateSelector } from "./components/Sidebar/TemplateSelector";
 import { CalibrationModal } from "./components/CalibrationModal";
 import { useProcessing } from "./hooks/useProcessing";
 import { useImageLoader } from "./hooks/useImageLoader";
-import type { ViewMode } from "./types";
+import type { ViewMode, GetCalibrationResponse } from "./types";
 import "./App.css";
 
 function App() {
@@ -28,13 +29,43 @@ function App() {
 
   const { processMatchTemplate, isProcessing } = useProcessing();
   const { loadImageFromPath } = useImageLoader();
-  const { openModal: openCalibrationModal } = useCalibrationStore();
+  const { openModal: openCalibrationModal, openAlignment } = useCalibrationStore();
 
   // Handle opening calibration modal
   const handleOpenCalibration = () => {
     if (!detectedTemplate?.templateId || !imageWidth || !imageHeight) return;
     openCalibrationModal(detectedTemplate.templateId, imageWidth, imageHeight);
   };
+
+  // Handle opening alignment modal (re-align existing calibration)
+  const handleOpenAlignment = useCallback(async () => {
+    if (!detectedTemplate?.templateId || !imageWidth || !imageHeight) return;
+
+    try {
+      // Fetch fresh calibration data from backend
+      const calibResult = await invoke<GetCalibrationResponse>("get_calibration", {
+        templateId: detectedTemplate.templateId,
+      });
+
+      if (calibResult.success && calibResult.exists && calibResult.derived) {
+        const savedCalibrationData = {
+          referenceHour: calibResult.derived.reference_hour ?? 12,
+          referenceMinute: calibResult.derived.reference_minute ?? 0,
+          referenceTemp: calibResult.derived.reference_temp ?? calibResult.derived.horizontal_top_temp ?? 0,
+          verticalSpacing: calibResult.derived.line_spacing,
+          horizontalSpacing: calibResult.derived.horizontal_spacing ?? 25,
+          curvature: calibResult.derived.curve_coeff_a,
+          centerY: calibResult.derived.curve_center_y,
+          topPoint: calibResult.derived.top_point,
+          bottomPoint: calibResult.derived.bottom_point,
+        };
+
+        openAlignment(detectedTemplate.templateId, imageWidth, imageHeight, savedCalibrationData);
+      }
+    } catch (err) {
+      console.error("Failed to load calibration for alignment:", err);
+    }
+  }, [detectedTemplate?.templateId, imageWidth, imageHeight, openAlignment]);
 
   // Drag and drop state
   const [isDragOver, setIsDragOver] = useState(false);
@@ -130,6 +161,18 @@ function App() {
           </p>
         </div>
         <div className="header-right">
+          <button
+            className="btn btn-align"
+            onClick={handleOpenAlignment}
+            disabled={!gridCalibration}
+            title={
+              !gridCalibration
+                ? "Calibrate first to enable alignment"
+                : `Re-align grid for ${detectedTemplate?.templateId}`
+            }
+          >
+            Align
+          </button>
           <button
             className={`btn btn-calibrate ${needsCalibration ? "btn-calibrate-required" : ""}`}
             onClick={handleOpenCalibration}

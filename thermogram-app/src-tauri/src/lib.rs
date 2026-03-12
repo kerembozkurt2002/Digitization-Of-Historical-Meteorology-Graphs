@@ -2,19 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct DewarpResponse {
-    pub success: bool,
-    pub message: Option<String>,
-    pub error: Option<String>,
-    pub grid_lines_detected: Option<i32>,
-    pub original_image: Option<String>,
-    pub straightened_image: Option<String>,
-    pub forward_transform: Option<Vec<Vec<f64>>>,
-    pub inverse_transform: Option<Vec<Vec<f64>>>,
-    pub output_path: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct PreviewResponse {
     pub success: bool,
     pub error: Option<String>,
@@ -30,35 +17,6 @@ pub struct PreviewResponse {
     // Curve coefficients: x = a*y² + b*y + x0
     pub curve_coeff_a: Option<f64>,
     pub curve_coeff_b: Option<f64>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct HealthResponse {
-    pub success: bool,
-    pub message: String,
-    pub version: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct FlattenedResponse {
-    pub success: bool,
-    pub message: Option<String>,
-    pub error: Option<String>,
-    pub vertical_lines: Option<i32>,
-    pub horizontal_lines: Option<i32>,
-    pub flattened_image: Option<String>,
-    pub output_path: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct StraightenedGridResponse {
-    pub success: bool,
-    pub message: Option<String>,
-    pub error: Option<String>,
-    pub vertical_lines: Option<i32>,
-    pub horizontal_lines: Option<i32>,
-    pub straightened_grid_image: Option<String>,
-    pub output_path: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -144,14 +102,6 @@ pub struct GetCalibrationResponse {
     pub derived: Option<CalibrationDerived>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct HasCalibrationResponse {
-    pub success: bool,
-    pub error: Option<String>,
-    pub template_id: Option<String>,
-    pub exists: Option<bool>,
-}
-
 /// Get the path to the Python backend
 fn get_backend_path() -> String {
     // In development, use relative path from src-tauri
@@ -184,29 +134,6 @@ fn run_python_command(args: Vec<&str>) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn health_check() -> Result<HealthResponse, String> {
-    let output = run_python_command(vec!["health"])?;
-    serde_json::from_str(&output)
-        .map_err(|e| format!("Failed to parse response: {}", e))
-}
-
-#[tauri::command]
-fn dewarp_image(image_path: String, output_path: Option<String>) -> Result<DewarpResponse, String> {
-    let mut args = vec!["dewarp", "--image", &image_path];
-
-    let output_path_str;
-    if let Some(ref path) = output_path {
-        output_path_str = path.clone();
-        args.push("--output");
-        args.push(&output_path_str);
-    }
-
-    let output = run_python_command(args)?;
-    serde_json::from_str(&output)
-        .map_err(|e| format!("Failed to parse response: {} - Output: {}", e, output))
-}
-
-#[tauri::command]
 fn preview_grid(image_path: String, algorithm: Option<i32>, output_path: Option<String>, curvature: Option<f64>) -> Result<PreviewResponse, String> {
     let algo_str = algorithm.unwrap_or(1).to_string();
     let mut args = vec!["preview", "--image", &image_path, "--algorithm", &algo_str];
@@ -223,38 +150,6 @@ fn preview_grid(image_path: String, algorithm: Option<i32>, output_path: Option<
         curvature_str = curv.to_string();
         args.push("--curvature");
         args.push(&curvature_str);
-    }
-
-    let output = run_python_command(args)?;
-    serde_json::from_str(&output)
-        .map_err(|e| format!("Failed to parse response: {}", e))
-}
-
-#[tauri::command]
-fn flattened_grid(image_path: String, output_path: Option<String>) -> Result<FlattenedResponse, String> {
-    let mut args = vec!["flattened", "--image", &image_path];
-
-    let output_path_str;
-    if let Some(ref path) = output_path {
-        output_path_str = path.clone();
-        args.push("--output");
-        args.push(&output_path_str);
-    }
-
-    let output = run_python_command(args)?;
-    serde_json::from_str(&output)
-        .map_err(|e| format!("Failed to parse response: {}", e))
-}
-
-#[tauri::command]
-fn straightened_grid(image_path: String, output_path: Option<String>) -> Result<StraightenedGridResponse, String> {
-    let mut args = vec!["straightened-grid", "--image", &image_path];
-
-    let output_path_str;
-    if let Some(ref path) = output_path {
-        output_path_str = path.clone();
-        args.push("--output");
-        args.push(&output_path_str);
     }
 
     let output = run_python_command(args)?;
@@ -288,114 +183,8 @@ fn detect_template(image_path: String) -> Result<DetectTemplateResponse, String>
 }
 
 #[tauri::command]
-fn save_calibration(
-    template_id: String,
-    top_point: CalibrationPoint,
-    bottom_point: CalibrationPoint,
-    center_y: f64,
-    curvature: f64,
-    image_width: i32,
-    image_height: i32
-) -> Result<SaveCalibrationResponse, String> {
-    // Convert points to JSON strings
-    let top_point_json = serde_json::to_string(&top_point)
-        .map_err(|e| format!("Failed to serialize top_point: {}", e))?;
-    let bottom_point_json = serde_json::to_string(&bottom_point)
-        .map_err(|e| format!("Failed to serialize bottom_point: {}", e))?;
-
-    let center_y_str = center_y.to_string();
-    let curvature_str = curvature.to_string();
-    let width_str = image_width.to_string();
-    let height_str = image_height.to_string();
-
-    let args = vec![
-        "save-calibration",
-        "--template-id", &template_id,
-        "--top-point", &top_point_json,
-        "--bottom-point", &bottom_point_json,
-        "--center-y", &center_y_str,
-        "--curvature", &curvature_str,
-        "--image-width", &width_str,
-        "--image-height", &height_str
-    ];
-
-    let output = run_python_command(args)?;
-    serde_json::from_str(&output)
-        .map_err(|e| format!("Failed to parse response: {}", e))
-}
-
-#[tauri::command]
 fn get_calibration(template_id: String) -> Result<GetCalibrationResponse, String> {
     let args = vec!["get-calibration", "--template-id", &template_id];
-
-    let output = run_python_command(args)?;
-    serde_json::from_str(&output)
-        .map_err(|e| format!("Failed to parse response: {}", e))
-}
-
-#[tauri::command]
-fn has_calibration(template_id: String) -> Result<HasCalibrationResponse, String> {
-    let args = vec!["has-calibration", "--template-id", &template_id];
-
-    let output = run_python_command(args)?;
-    serde_json::from_str(&output)
-        .map_err(|e| format!("Failed to parse response: {}", e))
-}
-
-#[tauri::command]
-fn save_calibration_full(
-    template_id: String,
-    // Vertical calibration
-    vertical_line1_top: CalibrationPoint,
-    vertical_line1_bottom: CalibrationPoint,
-    vertical_line1_hour: String,
-    vertical_line2_top: CalibrationPoint,
-    vertical_line2_hour: String,
-    vertical_last_top: CalibrationPoint,
-    center_y: f64,
-    curvature: f64,
-    vertical_spacing_adjust: f64,
-    // Horizontal calibration
-    horizontal_top: CalibrationPoint,
-    horizontal_top_temp: i32,
-    horizontal_second: CalibrationPoint,
-    horizontal_bottom: CalibrationPoint,
-    horizontal_spacing_adjust: f64,
-    // Image dimensions
-    image_width: i32,
-    image_height: i32,
-) -> Result<SaveCalibrationResponse, String> {
-    // Build a JSON object with all calibration data
-    let calibration_data = serde_json::json!({
-        "template_id": template_id,
-        "vertical": {
-            "line1_top": vertical_line1_top,
-            "line1_bottom": vertical_line1_bottom,
-            "line1_hour": vertical_line1_hour,
-            "line2_top": vertical_line2_top,
-            "line2_hour": vertical_line2_hour,
-            "last_top": vertical_last_top,
-            "center_y": center_y,
-            "curvature": curvature,
-            "spacing_adjust": vertical_spacing_adjust
-        },
-        "horizontal": {
-            "top": horizontal_top,
-            "top_temp": horizontal_top_temp,
-            "second": horizontal_second,
-            "bottom": horizontal_bottom,
-            "spacing_adjust": horizontal_spacing_adjust
-        },
-        "image_width": image_width,
-        "image_height": image_height
-    });
-
-    let calibration_json = calibration_data.to_string();
-
-    let args = vec![
-        "save-calibration-full",
-        "--data", &calibration_json
-    ];
 
     let output = run_python_command(args)?;
     serde_json::from_str(&output)
@@ -456,11 +245,6 @@ fn save_calibration_simple(
         .map_err(|e| format!("Failed to parse response: {}", e))
 }
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -468,18 +252,10 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
-            greet,
-            health_check,
-            dewarp_image,
             preview_grid,
-            flattened_grid,
-            straightened_grid,
             match_template,
             detect_template,
-            save_calibration,
             get_calibration,
-            has_calibration,
-            save_calibration_full,
             save_calibration_simple
         ])
         .run(tauri::generate_context!())
