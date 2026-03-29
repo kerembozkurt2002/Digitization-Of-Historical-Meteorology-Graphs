@@ -261,21 +261,89 @@
   position: relative;
 }
 
+.workspace-zoomed {
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.zoom-sizer {
+  flex-shrink: 0;
+  position: relative;
+}
+
 .image-container {
-  max-width: 100%;
-  max-height: 100%;
-  overflow: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
+  width: max-content;
 }
 
 .thermogram-image {
+  display: block;
   max-width: 100%;
   max-height: calc(100vh - 150px);
   object-fit: contain;
   border-radius: 4px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  position: relative;
+  z-index: 0;
+}
+
+/* Floating zoom controls - centered at bottom of workspace */
+.workspace-zoom-controls {
+  position: fixed;
+  bottom: 1rem;
+  left: calc((100vw + 280px) / 2);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background-color: rgba(22, 33, 62, 0.92);
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  padding: 4px;
+  z-index: 10;
+  pointer-events: auto;
+  backdrop-filter: blur(4px);
+}
+
+.zoom-btn,
+.zoom-level-btn {
+  background: none;
+  border: none;
+  color: #eaeaea;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.15s;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.zoom-btn {
+  width: 28px;
+  height: 28px;
+  font-size: 1rem;
+}
+
+.zoom-btn:hover:not(:disabled) {
+  background-color: rgba(233, 69, 96, 0.3);
+}
+
+.zoom-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.zoom-level-btn {
+  padding: 4px 8px;
+  min-width: 50px;
+  text-align: center;
+  font-family: monospace;
+  font-weight: 600;
+  color: #8b8b8b;
+}
+
+.zoom-level-btn:hover {
+  background-color: rgba(15, 52, 96, 0.6);
+  color: #eaeaea;
 }
 
 .placeholder {
@@ -346,4 +414,84 @@
 .drop-message p {
   font-size: 1.25rem;
   font-weight: bold;
+}
+
+/* View buttons 3-column layout */
+.view-buttons-3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+/* Curve panel */
+.curve-info {
+  font-size: 0.75rem;
+  color: #8b8b8b;
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.curve-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.curve-controls .btn {
+  margin-bottom: 0;
+  padding: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.curve-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: #eaeaea;
+  margin-top: 0.5rem;
+  cursor: pointer;
+}
+
+.curve-toggle input[type="checkbox"] {
+  accent-color: #e94560;
+}
+
+.curve-error {
+  font-size: 0.75rem;
+  color: #ff6b6b;
+  margin-top: 0.5rem;
+}
+
+/* Bounds selection */
+.bounds-section {
+  margin-bottom: 0.75rem;
+}
+
+.bounds-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #ccc;
+  margin-bottom: 0.35rem;
+}
+
+.bounds-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: #00ccff;
+  margin-top: 0.35rem;
+}
+
+.bounds-info .btn-sm {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.7rem;
+  min-width: unset;
+}
+
+.bounds-hint {
+  font-size: 0.75rem;
+  color: #00ccff;
+  margin-top: 0.35rem;
+  font-style: italic;
 }

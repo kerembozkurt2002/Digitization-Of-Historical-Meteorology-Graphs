@@ -118,7 +118,7 @@ export interface ProcessingState {
 // View Mode Types
 // ============================================================================
 
-export type ViewMode = "image" | "original";
+export type ViewMode = "image" | "original" | "curve";
 
 // ============================================================================
 // Template Detection Types
@@ -310,5 +310,22 @@ export interface GetCalibrationResponse {
   calibrated_at?: string;
   image_dimensions?: { width: number; height: number };
   derived?: GridCalibrationDerived;
+}
+
+// ============================================================================
+// Curve Extraction Types
+// ============================================================================
+
+export interface CurvePoint {
+  x: number;
+  y: number;
+}
+
+export interface ExtractCurveResponse {
+  success: boolean;
+  error?: string;
+  points?: CurvePoint[];
+  num_points?: number;
+  message?: string;
 }
 

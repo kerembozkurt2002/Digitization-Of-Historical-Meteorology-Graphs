@@ -13,6 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useImageStore } from "../stores/imageStore";
 import { useCalibrationStore, type SavedCalibrationData } from "../stores/calibrationStore";
 import { useDataStore } from "../stores/dataStore";
+import { useCurveStore } from "../stores/curveStore";
 import type { PreviewResponse, DetectTemplateResponse, GetCalibrationResponse } from "../types";
 
 export function useImageLoader() {
@@ -26,6 +27,7 @@ export function useImageLoader() {
   } = useImageStore();
   const { openPrompt, openAlignment } = useCalibrationStore();
   const { reset: resetData } = useDataStore();
+  const { clear: clearCurve } = useCurveStore();
 
   const loadImageFromPath = useCallback(async (filePath: string): Promise<{ success: boolean; needsCalibration: boolean; templateId: string | null }> => {
     // Validate file extension
@@ -43,6 +45,7 @@ export function useImageLoader() {
 
     // Reset previous state
     resetData();
+    clearCurve();
     setDetectedTemplate(null);
     setGridCalibration(null);
 
@@ -181,7 +184,7 @@ export function useImageLoader() {
     }
 
     return { success: true, needsCalibration, templateId };
-  }, [setImagePath, setOriginalImage, setProcessingState, setImageDimensions, setDetectedTemplate, setGridCalibration, resetData, openPrompt, openAlignment]);
+  }, [setImagePath, setOriginalImage, setProcessingState, setImageDimensions, setDetectedTemplate, setGridCalibration, resetData, clearCurve, openPrompt, openAlignment]);
 
   return { loadImageFromPath };
 }

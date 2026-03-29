@@ -18,6 +18,7 @@ import numpy as np
 from pipeline.dewarper import Dewarper
 from pipeline.preprocessor import Preprocessor
 from pipeline.template_detector import TemplateDetector
+from pipeline.segmenter import CurveSegmenter
 from utils.image_utils import load_image, encode_image_base64, save_image
 
 
@@ -242,6 +243,62 @@ def cmd_save_calibration_simple(args):
         return 1
 
 
+def cmd_extract_curve(args):
+    """Extract the ink trace curve from a thermogram image."""
+    image_path = args.image
+    template_id = args.template_id
+    sample_interval = getattr(args, 'sample_interval', 5)
+
+    if not os.path.exists(image_path):
+        result = {
+            "success": False,
+            "error": f"Image file not found: {image_path}"
+        }
+        print(json.dumps(result))
+        return 1
+
+    try:
+        image = load_image(image_path)
+    except ValueError as e:
+        print(json.dumps({"success": False, "error": str(e)}))
+        return 1
+
+    try:
+        # Load calibration for grid masking (optional but recommended)
+        calibration = None
+        if template_id:
+            from pipeline.calibration_processor import get_processor
+            processor = get_processor()
+            cal_path = processor._get_calibration_path(template_id)
+            if cal_path.exists():
+                with open(cal_path, 'r') as f:
+                    calibration = json.load(f)
+
+        # Normalize image
+        preprocessor = Preprocessor()
+        normalized = preprocessor._normalize(image)
+
+        # Extract curve
+        x_min = getattr(args, 'x_min', None)
+        x_max = getattr(args, 'x_max', None)
+        segmenter = CurveSegmenter()
+        result = segmenter.extract(normalized, calibration, sample_interval, x_min, x_max)
+
+        response = {
+            "success": result.success,
+            "points": [{"x": p.x, "y": p.y} for p in result.points],
+            "num_points": result.num_points,
+            "message": result.message,
+        }
+
+        print(json.dumps(response))
+        return 0 if result.success else 1
+
+    except Exception as e:
+        print(json.dumps({"success": False, "error": str(e)}))
+        return 1
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Thermogram Digitization Backend",
@@ -274,6 +331,18 @@ def main():
     save_cal_simple_parser = subparsers.add_parser('save-calibration-simple', help='Save grid calibration')
     save_cal_simple_parser.add_argument('--data', '-d', required=True, help='JSON object with calibration data')
     save_cal_simple_parser.set_defaults(func=cmd_save_calibration_simple)
+
+    # Extract curve command
+    extract_parser = subparsers.add_parser('extract-curve', help='Extract ink trace curve from image')
+    extract_parser.add_argument('--image', '-i', required=True, help='Path to input image')
+    extract_parser.add_argument('--template-id', '-t', required=True, help='Template ID for calibration')
+    extract_parser.add_argument('--sample-interval', '-s', type=int, default=5,
+                                help='Pixel spacing between sampled points (default: 5)')
+    extract_parser.add_argument('--x-min', type=int, default=None,
+                                help='Left X bound in image pixels (optional)')
+    extract_parser.add_argument('--x-max', type=int, default=None,
+                                help='Right X bound in image pixels (optional)')
+    extract_parser.set_defaults(func=cmd_extract_curve)
 
     args = parser.parse_args()
 

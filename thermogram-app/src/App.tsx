@@ -1,18 +1,22 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
 import { useImageStore } from "./stores/imageStore";
 import { useCalibrationStore } from "./stores/calibrationStore";
+import { useCurveStore } from "./stores/curveStore";
 import { UploadPanel } from "./components/Sidebar/UploadPanel";
 import { GridOverlay } from "./components/Workspace/GridOverlay";
+import { CurveOverlay } from "./components/Workspace/CurveOverlay";
 import { TemplateSelector } from "./components/Sidebar/TemplateSelector";
 import { CalibrationModal } from "./components/CalibrationModal";
+import { CurveBoundsModal } from "./components/CurveBoundsModal";
 import { useImageLoader } from "./hooks/useImageLoader";
 import type { ViewMode, GetCalibrationResponse } from "./types";
 import "./App.css";
 
 function App() {
   const {
+    imagePath,
     originalImage,
     imageWidth,
     imageHeight,
@@ -25,6 +29,24 @@ function App() {
 
   const { loadImageFromPath } = useImageLoader();
   const { openModal: openCalibrationModal, openAlignment } = useCalibrationStore();
+  const {
+    points: curvePoints,
+    isExtracting,
+    showCurve,
+    error: curveError,
+    extractCurve,
+    setShowCurve,
+    resetEdits: resetCurveEdits,
+    undo: undoCurve,
+    redo: redoCurve,
+    canUndo: canUndoCurve,
+    canRedo: canRedoCurve,
+    xMin,
+    xMax,
+    isBoundsModalOpen,
+    openBoundsModal,
+    clearBounds,
+  } = useCurveStore();
 
   // Handle opening calibration modal
   const handleOpenCalibration = () => {
@@ -125,11 +147,20 @@ function App() {
     };
   }, [loadImageFromPath]);
 
+  // Workspace zoom
+  const [zoom, setZoom] = useState(1.0);
+  const workspaceRef = useRef<HTMLElement>(null);
+
+  // Reset zoom on image change
+  useEffect(() => {
+    setZoom(1.0);
+  }, [originalImage]);
+
   // Track image dimensions for canvas overlay
   const imageRef = useRef<HTMLImageElement>(null);
   const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
 
-  // Update dimensions when image loads
+  // Update dimensions when image loads or resizes (object-fit: contain must match overlay math)
   const handleImageLoad = () => {
     if (imageRef.current) {
       setImageDimensions({
@@ -139,10 +170,74 @@ function App() {
     }
   };
 
-  // Show grid overlay when calibration exists and viewing "original" (grid view)
-  const showGridOverlay = gridCalibration !== null && viewMode === "original";
+  useEffect(() => {
+    const img = imageRef.current;
+    if (!img || !originalImage) return;
+    const ro = new ResizeObserver(() => {
+      if (imageRef.current) {
+        setImageDimensions({
+          width: imageRef.current.clientWidth,
+          height: imageRef.current.clientHeight,
+        });
+      }
+    });
+    ro.observe(img);
+    return () => ro.disconnect();
+  }, [originalImage]);
 
-  // Keyboard shortcuts for switching views (0-1)
+  // Ctrl+scroll to zoom workspace (non-passive to allow preventDefault)
+  useEffect(() => {
+    const el = workspaceRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -0.15 : 0.15;
+        setZoom((z) => Math.max(0.25, Math.min(5.0, z + delta)));
+      }
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, []);
+
+  const zoomIn = useCallback(() => setZoom((z) => Math.min(5.0, z + 0.25)), []);
+  const zoomOut = useCallback(() => setZoom((z) => Math.max(0.25, z - 0.25)), []);
+  const zoomReset = useCallback(() => setZoom(1.0), []);
+
+  // Handle extracting the curve
+  const handleExtractCurve = useCallback(async () => {
+    if (!imagePath || !detectedTemplate?.templateId) return;
+    await extractCurve(imagePath, detectedTemplate.templateId);
+  }, [imagePath, detectedTemplate?.templateId, extractCurve]);
+
+  // Auto-extract when bounds modal closes with new bounds
+  const prevBoundsModalOpen = useRef(false);
+  useEffect(() => {
+    if (prevBoundsModalOpen.current && !isBoundsModalOpen && xMin !== null && xMax !== null) {
+      if (imagePath && detectedTemplate?.templateId) {
+        extractCurve(imagePath, detectedTemplate.templateId);
+      }
+    }
+    prevBoundsModalOpen.current = isBoundsModalOpen;
+  }, [isBoundsModalOpen, xMin, xMax, imagePath, detectedTemplate?.templateId, extractCurve]);
+
+  // Auto-extract curve when switching to curve view if not already extracted
+  const handleCurveView = useCallback(() => {
+    setViewMode("curve");
+    if (curvePoints.length === 0 && !isExtracting && imagePath && detectedTemplate?.templateId) {
+      extractCurve(imagePath, detectedTemplate.templateId);
+    }
+  }, [setViewMode, curvePoints.length, isExtracting, imagePath, detectedTemplate?.templateId, extractCurve]);
+
+  // Show grid overlay when calibration exists and viewing grid or curve
+  const showGridOverlay = gridCalibration !== null && (viewMode === "original" || viewMode === "curve");
+  const hasCurveBounds = xMin !== null || xMax !== null;
+  const showCurveOverlay = viewMode === "curve" && (
+    (showCurve && curvePoints.length > 0) || hasCurveBounds
+  );
+  const canExtractCurve = !!originalImage && !!detectedTemplate?.templateId && !!imagePath;
+
+  // Keyboard shortcuts for switching views (0-2) and curve undo/redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -152,6 +247,33 @@ function App() {
         return;
       }
 
+      const mod = e.ctrlKey || e.metaKey;
+
+      if (mod) {
+        switch (e.key) {
+          case "=":
+          case "+":
+            e.preventDefault();
+            setZoom((z) => Math.min(5.0, z + 0.25));
+            return;
+          case "-":
+            e.preventDefault();
+            setZoom((z) => Math.max(0.25, z - 0.25));
+            return;
+          case "0":
+            e.preventDefault();
+            setZoom(1.0);
+            return;
+          case "z":
+            if (viewMode === "curve") {
+              e.preventDefault();
+              if (e.shiftKey) redoCurve();
+              else undoCurve();
+            }
+            return;
+        }
+      }
+
       switch (e.key) {
         case "0":
           if (originalImage) setViewMode("image");
@@ -159,12 +281,15 @@ function App() {
         case "1":
           if (originalImage) setViewMode("original");
           break;
+        case "2":
+          if (originalImage) handleCurveView();
+          break;
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [originalImage, setViewMode]);
+  }, [originalImage, setViewMode, handleCurveView, viewMode, undoCurve, redoCurve]);
 
   const isViewActive = (mode: ViewMode): boolean => viewMode === mode;
 
@@ -212,6 +337,7 @@ function App() {
       </header>
 
       <CalibrationModal />
+      <CurveBoundsModal />
 
       <div className="main-layout">
         <aside className="sidebar">
@@ -221,8 +347,8 @@ function App() {
             <TemplateSelector />
 
             <div className="panel">
-              <h2>View (0-1)</h2>
-              <div className="view-buttons">
+              <h2>View (0-2)</h2>
+              <div className="view-buttons view-buttons-3">
                 <button
                   onClick={() => setViewMode("image")}
                   disabled={!originalImage}
@@ -239,8 +365,83 @@ function App() {
                 >
                   1. Grid
                 </button>
+                <button
+                  onClick={handleCurveView}
+                  disabled={!originalImage}
+                  className={`btn ${isViewActive("curve") ? "btn-active" : ""}`}
+                  title="Extract and edit temperature curve"
+                >
+                  2. Curve
+                </button>
               </div>
             </div>
+
+            {viewMode === "curve" && (
+              <div className="panel">
+                <h2>Curve</h2>
+
+                <div className="bounds-section">
+                  <button onClick={openBoundsModal} className="btn btn-secondary">
+                    {xMin !== null ? "Re-pick bounds" : "Set curve bounds"}
+                  </button>
+                  {xMin !== null && xMax !== null && (
+                    <div className="bounds-info">
+                      <span>L: {Math.round(xMin)}px &nbsp; R: {Math.round(xMax)}px</span>
+                      <button onClick={clearBounds} className="btn btn-sm" title="Remove bounds">
+                        Clear
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={handleExtractCurve}
+                  disabled={!canExtractCurve || isExtracting}
+                  className="btn btn-primary"
+                >
+                  {isExtracting ? "Extracting..." : "Re-extract Curve"}
+                </button>
+                {curvePoints.length > 0 && (
+                  <>
+                    <p className="curve-info">{curvePoints.length} points</p>
+                    <div className="curve-controls">
+                      <button
+                        onClick={undoCurve}
+                        disabled={!canUndoCurve()}
+                        className="btn btn-secondary"
+                        title="Undo (Ctrl+Z)"
+                      >
+                        Undo
+                      </button>
+                      <button
+                        onClick={redoCurve}
+                        disabled={!canRedoCurve()}
+                        className="btn btn-secondary"
+                        title="Redo (Ctrl+Shift+Z)"
+                      >
+                        Redo
+                      </button>
+                    </div>
+                    <button
+                      onClick={resetCurveEdits}
+                      className="btn btn-secondary"
+                      title="Reset all edits to original extraction"
+                    >
+                      Reset Edits
+                    </button>
+                    <label className="curve-toggle">
+                      <input
+                        type="checkbox"
+                        checked={showCurve}
+                        onChange={(e) => setShowCurve(e.target.checked)}
+                      />
+                      Show Curve
+                    </label>
+                  </>
+                )}
+                {curveError && <p className="curve-error">{curveError}</p>}
+              </div>
+            )}
           </div>
 
           <div className="sidebar-pinned">
@@ -251,7 +452,10 @@ function App() {
           </div>
         </aside>
 
-        <main className={`workspace ${isDragOver ? "drag-over" : ""}`}>
+        <main
+          ref={workspaceRef}
+          className={`workspace ${isDragOver ? "drag-over" : ""} ${zoom > 1 ? "workspace-zoomed" : ""}`}
+        >
           {isDragOver && (
             <div className="drop-overlay">
               <div className="drop-message">
@@ -261,23 +465,57 @@ function App() {
             </div>
           )}
           {originalImage ? (
-            <div className="image-container" style={{ position: "relative" }}>
-              <img
-                ref={imageRef}
-                src={`data:image/png;base64,${originalImage}`}
-                alt={viewMode}
-                className="thermogram-image"
-                onLoad={handleImageLoad}
-              />
-              {showGridOverlay && imageDimensions.width > 0 && (
-                <GridOverlay
-                  width={imageDimensions.width}
-                  height={imageDimensions.height}
-                  showVertical={true}
-                  showHorizontal={true}
-                />
-              )}
-            </div>
+            <>
+              <div
+                className="zoom-sizer"
+                style={{
+                  width: imageDimensions.width * zoom,
+                  height: imageDimensions.height * zoom,
+                }}
+              >
+                <div
+                  className="image-container"
+                  style={{
+                    transform: `scale(${zoom})`,
+                    transformOrigin: "0 0",
+                  }}
+                >
+                  <img
+                    ref={imageRef}
+                    src={`data:image/png;base64,${originalImage}`}
+                    alt={viewMode}
+                    className="thermogram-image"
+                    onLoad={handleImageLoad}
+                  />
+                  {showGridOverlay && imageDimensions.width > 0 && (
+                    <GridOverlay
+                      width={imageDimensions.width}
+                      height={imageDimensions.height}
+                      showVertical={true}
+                      showHorizontal={true}
+                    />
+                  )}
+                  {showCurveOverlay && imageDimensions.width > 0 && (
+                    <CurveOverlay
+                      width={imageDimensions.width}
+                      height={imageDimensions.height}
+                    />
+                  )}
+                </div>
+              </div>
+
+              <div className="workspace-zoom-controls">
+                <button className="zoom-btn" onClick={zoomOut} disabled={zoom <= 0.25} title="Zoom out">
+                  &minus;
+                </button>
+                <button className="zoom-level-btn" onClick={zoomReset} title="Reset zoom">
+                  {Math.round(zoom * 100)}%
+                </button>
+                <button className="zoom-btn" onClick={zoomIn} disabled={zoom >= 5.0} title="Zoom in">
+                  +
+                </button>
+              </div>
+            </>
           ) : (
             <div className="placeholder">
               <p>Select an image to begin</p>

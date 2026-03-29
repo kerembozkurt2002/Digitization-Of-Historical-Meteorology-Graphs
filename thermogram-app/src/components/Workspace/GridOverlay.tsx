@@ -11,6 +11,7 @@
 
 import { useEffect, useRef } from "react";
 import { useImageStore } from "../../stores/imageStore";
+import { getContainedImageLayout, naturalToCanvas } from "../../utils/imageDisplayLayout";
 
 interface GridOverlayProps {
   width: number;
@@ -44,9 +45,7 @@ export function GridOverlay({ width, height, showVertical, showHorizontal }: Gri
     // Clear canvas
     ctx.clearRect(0, 0, width, height);
 
-    // Calculate scale factors
-    const scaleX = width / imageWidth;
-    const scaleY = height / imageHeight;
+    const layout = getContainedImageLayout(width, height, imageWidth, imageHeight);
 
     // Draw horizontal lines from calibration (straight lines)
     // Image is already rotated, so no rotation needed here
@@ -55,10 +54,11 @@ export function GridOverlay({ width, height, showVertical, showHorizontal }: Gri
       ctx.lineWidth = 1;
 
       for (const yPos of gridCalibration.horizontalPositions) {
-        const scaledY = yPos * scaleY;
+        const a = naturalToCanvas(0, yPos, layout);
+        const b = naturalToCanvas(imageWidth, yPos, layout);
         ctx.beginPath();
-        ctx.moveTo(0, scaledY);
-        ctx.lineTo(width, scaledY);
+        ctx.moveTo(a.sx, a.sy);
+        ctx.lineTo(b.sx, b.sy);
         ctx.stroke();
       }
     }
@@ -124,13 +124,12 @@ export function GridOverlay({ width, height, showVertical, showHorizontal }: Gri
 
           const x = xBase + offset;
 
-          const scaledX = x * scaleX;
-          const scaledY = y * scaleY;
+          const { sx, sy } = naturalToCanvas(x, y, layout);
 
           if (y === yStart) {
-            ctx.moveTo(scaledX, scaledY);
+            ctx.moveTo(sx, sy);
           } else {
-            ctx.lineTo(scaledX, scaledY);
+            ctx.lineTo(sx, sy);
           }
         }
 
@@ -164,6 +163,7 @@ export function GridOverlay({ width, height, showVertical, showHorizontal }: Gri
         top: 0,
         left: 0,
         pointerEvents: "none",
+        zIndex: 1,
       }}
     />
   );

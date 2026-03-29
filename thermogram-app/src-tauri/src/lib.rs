@@ -83,6 +83,21 @@ pub struct GetCalibrationResponse {
     pub derived: Option<CalibrationDerived>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CurvePointData {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExtractCurveResponse {
+    pub success: bool,
+    pub error: Option<String>,
+    pub points: Option<Vec<CurvePointData>>,
+    pub num_points: Option<i32>,
+    pub message: Option<String>,
+}
+
 /// Get the path to the Python backend
 fn get_backend_path() -> String {
     // In development, use relative path from src-tauri
@@ -210,6 +225,33 @@ fn save_calibration_simple(
         .map_err(|e| format!("Failed to parse response: {}", e))
 }
 
+#[tauri::command]
+fn extract_curve(image_path: String, template_id: String, sample_interval: Option<i32>, x_min: Option<i32>, x_max: Option<i32>) -> Result<ExtractCurveResponse, String> {
+    let interval_str = sample_interval.unwrap_or(5).to_string();
+    let x_min_str = x_min.map(|v| v.to_string());
+    let x_max_str = x_max.map(|v| v.to_string());
+
+    let mut args = vec![
+        "extract-curve",
+        "--image", &image_path,
+        "--template-id", &template_id,
+        "--sample-interval", &interval_str,
+    ];
+
+    if let Some(ref v) = x_min_str {
+        args.push("--x-min");
+        args.push(v);
+    }
+    if let Some(ref v) = x_max_str {
+        args.push("--x-max");
+        args.push(v);
+    }
+
+    let output = run_python_command(args)?;
+    serde_json::from_str(&output)
+        .map_err(|e| format!("Failed to parse response: {}", e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -220,7 +262,8 @@ pub fn run() {
             preview_grid,
             detect_template,
             get_calibration,
-            save_calibration_simple
+            save_calibration_simple,
+            extract_curve
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
