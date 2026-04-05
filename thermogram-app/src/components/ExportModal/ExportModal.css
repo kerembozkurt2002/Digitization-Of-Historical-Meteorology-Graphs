@@ -1,0 +1,352 @@
+/* Export Modal Styles */
+
+.export-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.8);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.export-modal {
+  width: 90vw;
+  max-width: 600px;
+  max-height: 85vh;
+  background-color: #1a1a2e;
+  border-radius: 12px;
+  border: 1px solid #0f3460;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+/* Header */
+.export-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background-color: #16213e;
+  border-bottom: 1px solid #0f3460;
+  flex-shrink: 0;
+}
+
+.export-modal-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #eaeaea;
+}
+
+.export-modal .close-btn {
+  background: none;
+  border: none;
+  color: #8b8b8b;
+  font-size: 2rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.2s ease;
+}
+
+.export-modal .close-btn:hover {
+  color: #e94560;
+}
+
+/* Body */
+.export-modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.export-section {
+  margin-bottom: 1.5rem;
+}
+
+.export-section:last-child {
+  margin-bottom: 0;
+}
+
+.export-section h3 {
+  margin: 0 0 0.75rem 0;
+  font-size: 1rem;
+  color: #e94560;
+  font-weight: 600;
+}
+
+.section-hint {
+  margin: 0 0 1rem 0;
+  font-size: 0.875rem;
+  color: #8b8b8b;
+}
+
+/* Info grid */
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.info-label {
+  font-size: 0.75rem;
+  color: #8b8b8b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.info-value {
+  font-size: 0.875rem;
+  color: #eaeaea;
+  font-weight: 500;
+}
+
+.info-value.template-badge {
+  display: inline-block;
+  background-color: #e94560;
+  color: white;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  width: fit-content;
+}
+
+/* DateTime inputs */
+.datetime-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.input-group label {
+  font-size: 0.875rem;
+  color: #8b8b8b;
+}
+
+.export-modal .input-field {
+  padding: 0.625rem 0.875rem;
+  background-color: #0f3460;
+  border: 1px solid #1a4a7a;
+  border-radius: 6px;
+  color: #eaeaea;
+  font-size: 0.875rem;
+  transition: border-color 0.2s ease;
+}
+
+.export-modal .input-field:focus {
+  outline: none;
+  border-color: #e94560;
+}
+
+/* Date picker wrapper */
+.date-picker-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.date-display {
+  display: inline-block;
+  padding: 0.625rem 0.875rem;
+  background-color: #0f3460;
+  border: 1px solid #1a4a7a;
+  border-radius: 6px;
+  color: #eaeaea;
+  font-size: 0.875rem;
+  min-width: 120px;
+  cursor: pointer;
+}
+
+.date-picker-wrapper:hover .date-display {
+  border-color: #e94560;
+}
+
+.date-input-hidden {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.date-input-hidden::-webkit-calendar-picker-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+/* Time input */
+.export-modal .time-input {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.export-modal .time-separator {
+  color: #eaeaea;
+  font-size: 1.25rem;
+  font-weight: bold;
+}
+
+.export-modal .input-hour,
+.export-modal .input-minute {
+  width: 60px;
+  text-align: center;
+}
+
+/* Hide number input spinners */
+.export-modal .input-hour::-webkit-outer-spin-button,
+.export-modal .input-hour::-webkit-inner-spin-button,
+.export-modal .input-minute::-webkit-outer-spin-button,
+.export-modal .input-minute::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.export-modal .input-hour,
+.export-modal .input-minute {
+  -moz-appearance: textfield;
+}
+
+/* CSV Preview Container */
+.csv-preview-container {
+  background-color: #0f0f1a;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.csv-preview {
+  margin: 0;
+  padding: 1rem;
+  font-family: "Fira Code", "Consolas", monospace;
+  font-size: 0.75rem;
+  color: #eaeaea;
+  white-space: pre;
+  line-height: 1.5;
+}
+
+/* Footer */
+.export-modal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background-color: #16213e;
+  border-top: 1px solid #0f3460;
+  flex-shrink: 0;
+}
+
+.footer-info {
+  font-size: 0.875rem;
+  color: #8b8b8b;
+}
+
+.footer-buttons {
+  display: flex;
+  gap: 0.75rem;
+}
+
+/* Button styles */
+.export-modal .btn {
+  padding: 0.625rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.export-modal .btn-primary {
+  background-color: #e94560;
+  color: white;
+}
+
+.export-modal .btn-primary:hover:not(:disabled) {
+  background-color: #ff6b6b;
+}
+
+.export-modal .btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.export-modal .btn-secondary {
+  background-color: #0f3460;
+  color: white;
+}
+
+.export-modal .btn-secondary:hover:not(:disabled) {
+  background-color: #1a4a7a;
+}
+
+/* ============================================
+   Export Notification Toast
+   ============================================ */
+
+.export-notification {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2000;
+  background-color: #4ade80;
+  color: #0f0f1a;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: 0 4px 20px rgba(74, 222, 128, 0.3);
+  animation: slideDown 0.3s ease, fadeOut 0.3s ease 2.7s forwards;
+}
+
+.notification-icon {
+  font-size: 1rem;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}

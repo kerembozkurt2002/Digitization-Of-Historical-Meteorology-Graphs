@@ -21,23 +21,21 @@ interface CurveState {
   error: string | null;
 
   selectedPointIndex: number | null;
+  selectedPointIndices: number[]; // Multi-selection
   dragPointIndex: number | null;
 
   editHistory: CurveEdit[];
   historyIndex: number;
 
-  // Bounds (user-defined left/right X limits in natural image px)
-  isBoundsModalOpen: boolean;
-  xMin: number | null;
-  xMax: number | null;
-
   // Actions
-  extractCurve: (imagePath: string, templateId: string, sampleInterval?: number) => Promise<boolean>;
+  extractCurve: (imagePath: string, templateId: string, sampleInterval?: number, xMin?: number, xMax?: number) => Promise<boolean>;
   setPoints: (points: CurvePoint[]) => void;
   updatePoint: (index: number, x: number, y: number) => void;
+  updateMultiplePointsY: (indices: number[], deltaY: number) => void;
   deletePoint: (index: number) => void;
   insertPoint: (afterIndex: number, point: CurvePoint) => void;
   setSelectedPointIndex: (index: number | null) => void;
+  setSelectedPointIndices: (indices: number[]) => void;
   setDragPointIndex: (index: number | null) => void;
   setShowCurve: (show: boolean) => void;
   resetEdits: () => void;
@@ -46,12 +44,7 @@ interface CurveState {
   canUndo: () => boolean;
   canRedo: () => boolean;
   clear: () => void;
-
-  // Bounds actions
-  openBoundsModal: () => void;
-  closeBoundsModal: () => void;
-  setBounds: (xMin: number, xMax: number) => void;
-  clearBounds: () => void;
+  deleteSelectedPoints: () => void;
 }
 
 function pushHistory(state: CurveState, newPoints: CurvePoint[]): Partial<CurveState> {
@@ -71,16 +64,13 @@ export const useCurveStore = create<CurveState>((set, get) => ({
   showCurve: true,
   error: null,
   selectedPointIndex: null,
+  selectedPointIndices: [],
   dragPointIndex: null,
   editHistory: [],
   historyIndex: -1,
-  isBoundsModalOpen: false,
-  xMin: null,
-  xMax: null,
 
-  extractCurve: async (imagePath, templateId, sampleInterval = 5) => {
+  extractCurve: async (imagePath, templateId, sampleInterval = 5, xMin?: number, xMax?: number) => {
     set({ isExtracting: true, error: null });
-    const { xMin, xMax } = get();
 
     try {
       const params: Record<string, unknown> = {
@@ -88,8 +78,8 @@ export const useCurveStore = create<CurveState>((set, get) => ({
         templateId,
         sampleInterval,
       };
-      if (xMin !== null) params.xMin = Math.round(xMin);
-      if (xMax !== null) params.xMax = Math.round(xMax);
+      if (xMin !== undefined) params.xMin = Math.round(xMin);
+      if (xMax !== undefined) params.xMax = Math.round(xMax);
 
       const result = await invoke<ExtractCurveResponse>("extract_curve", params);
 
@@ -135,6 +125,17 @@ export const useCurveStore = create<CurveState>((set, get) => ({
     set(pushHistory(state, newPoints));
   },
 
+  updateMultiplePointsY: (indices, deltaY) => {
+    const state = get();
+    const newPoints = [...state.points];
+    for (const idx of indices) {
+      if (idx >= 0 && idx < newPoints.length) {
+        newPoints[idx] = { x: newPoints[idx].x, y: newPoints[idx].y + deltaY };
+      }
+    }
+    set(pushHistory(state, newPoints));
+  },
+
   deletePoint: (index) => {
     const state = get();
     const newPoints = state.points.filter((_, i) => i !== index);
@@ -151,7 +152,8 @@ export const useCurveStore = create<CurveState>((set, get) => ({
     set(pushHistory(state, newPoints));
   },
 
-  setSelectedPointIndex: (index) => set({ selectedPointIndex: index }),
+  setSelectedPointIndex: (index) => set({ selectedPointIndex: index, selectedPointIndices: [] }),
+  setSelectedPointIndices: (indices) => set({ selectedPointIndices: indices, selectedPointIndex: null }),
   setDragPointIndex: (index) => set({ dragPointIndex: index }),
   setShowCurve: (show) => set({ showCurve: show }),
 
@@ -197,24 +199,37 @@ export const useCurveStore = create<CurveState>((set, get) => ({
       showCurve: true,
       error: null,
       selectedPointIndex: null,
+      selectedPointIndices: [],
       dragPointIndex: null,
       editHistory: [],
       historyIndex: -1,
-      isBoundsModalOpen: false,
-      xMin: null,
-      xMax: null,
     }),
 
-  openBoundsModal: () => set({ isBoundsModalOpen: true }),
-  closeBoundsModal: () => set({ isBoundsModalOpen: false }),
+  deleteSelectedPoints: () => {
+    const state = get();
+    const indicesToDelete = new Set<number>();
 
-  setBounds: (xMin: number, xMax: number) => {
-    const left = Math.min(xMin, xMax);
-    const right = Math.max(xMin, xMax);
-    set({ xMin: left, xMax: right, isBoundsModalOpen: false });
+    // Add single selected point
+    if (state.selectedPointIndex !== null) {
+      indicesToDelete.add(state.selectedPointIndex);
+    }
+
+    // Add multi-selected points
+    for (const idx of state.selectedPointIndices) {
+      indicesToDelete.add(idx);
+    }
+
+    if (indicesToDelete.size === 0) return;
+
+    // Filter out deleted points
+    const newPoints = state.points.filter((_, i) => !indicesToDelete.has(i));
+
+    set({
+      ...pushHistory(state, newPoints),
+      selectedPointIndex: null,
+      selectedPointIndices: [],
+    });
   },
-
-  clearBounds: () => set({ xMin: null, xMax: null }),
 }));
 
 export default useCurveStore;

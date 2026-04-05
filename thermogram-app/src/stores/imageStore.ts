@@ -35,6 +35,9 @@ interface GridCalibrationData {
   horizontalSpacing: number;
   horizontalPositions: number[];
   horizontalTopTemp: number;
+  // Reference values for time/temp calculation
+  referenceHour: number;
+  referenceMinute: number;
   // Rotation angle (radians) - for correcting skewed scans
   rotationAngle?: number;
   // Metadata

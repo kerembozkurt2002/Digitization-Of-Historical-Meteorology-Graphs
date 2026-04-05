@@ -162,6 +162,8 @@ export function CalibrationModal() {
         horizontalSpacing: horizontalSpacing,
         horizontalPositions: horizontalPositions,
         horizontalTopTemp: savedCalibration.referenceTemp,
+        referenceHour: savedCalibration.referenceHour,
+        referenceMinute: savedCalibration.referenceMinute,
         calibratedAt: new Date().toISOString(),
       });
 

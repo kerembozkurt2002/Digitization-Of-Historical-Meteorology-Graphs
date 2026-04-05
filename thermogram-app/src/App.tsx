@@ -9,7 +9,7 @@ import { GridOverlay } from "./components/Workspace/GridOverlay";
 import { CurveOverlay } from "./components/Workspace/CurveOverlay";
 import { TemplateSelector } from "./components/Sidebar/TemplateSelector";
 import { CalibrationModal } from "./components/CalibrationModal";
-import { CurveBoundsModal } from "./components/CurveBoundsModal";
+import { ExportModal } from "./components/ExportModal";
 import { useImageLoader } from "./hooks/useImageLoader";
 import type { ViewMode, GetCalibrationResponse } from "./types";
 import "./App.css";
@@ -41,11 +41,7 @@ function App() {
     redo: redoCurve,
     canUndo: canUndoCurve,
     canRedo: canRedoCurve,
-    xMin,
-    xMax,
-    isBoundsModalOpen,
-    openBoundsModal,
-    clearBounds,
+    deleteSelectedPoints,
   } = useCurveStore();
 
   // Handle opening calibration modal
@@ -86,6 +82,20 @@ function App() {
 
   // Drag and drop state
   const [isDragOver, setIsDragOver] = useState(false);
+
+  // Export modal state
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+
+  // Global notification state
+  const [notification, setNotification] = useState<string | null>(null);
+
+  // Clear notification after 3 seconds
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   // Track if calibration file exists for current template
   const [hasCalibrationFile, setHasCalibrationFile] = useState(false);
@@ -204,40 +214,45 @@ function App() {
   const zoomOut = useCallback(() => setZoom((z) => Math.max(0.25, z - 0.25)), []);
   const zoomReset = useCallback(() => setZoom(1.0), []);
 
-  // Handle extracting the curve
+  // Get curve bounds from grid calibration (first and last vertical lines)
+  const getCurveBounds = useCallback(() => {
+    if (!gridCalibration?.linePositions || gridCalibration.linePositions.length < 2) {
+      return { xMin: undefined, xMax: undefined };
+    }
+    const positions = gridCalibration.linePositions;
+    return {
+      xMin: Math.min(...positions),
+      xMax: Math.max(...positions),
+    };
+  }, [gridCalibration]);
+
+  // Handle extracting the curve with automatic bounds
   const handleExtractCurve = useCallback(async () => {
     if (!imagePath || !detectedTemplate?.templateId) return;
-    await extractCurve(imagePath, detectedTemplate.templateId);
-  }, [imagePath, detectedTemplate?.templateId, extractCurve]);
-
-  // Auto-extract when bounds modal closes with new bounds
-  const prevBoundsModalOpen = useRef(false);
-  useEffect(() => {
-    if (prevBoundsModalOpen.current && !isBoundsModalOpen && xMin !== null && xMax !== null) {
-      if (imagePath && detectedTemplate?.templateId) {
-        extractCurve(imagePath, detectedTemplate.templateId);
-      }
-    }
-    prevBoundsModalOpen.current = isBoundsModalOpen;
-  }, [isBoundsModalOpen, xMin, xMax, imagePath, detectedTemplate?.templateId, extractCurve]);
+    const { xMin, xMax } = getCurveBounds();
+    await extractCurve(imagePath, detectedTemplate.templateId, 5, xMin, xMax);
+  }, [imagePath, detectedTemplate?.templateId, extractCurve, getCurveBounds]);
 
   // Auto-extract curve when switching to curve view if not already extracted
   const handleCurveView = useCallback(() => {
     setViewMode("curve");
     if (curvePoints.length === 0 && !isExtracting && imagePath && detectedTemplate?.templateId) {
-      extractCurve(imagePath, detectedTemplate.templateId);
+      const { xMin, xMax } = getCurveBounds();
+      extractCurve(imagePath, detectedTemplate.templateId, 5, xMin, xMax);
     }
-  }, [setViewMode, curvePoints.length, isExtracting, imagePath, detectedTemplate?.templateId, extractCurve]);
+  }, [setViewMode, curvePoints.length, isExtracting, imagePath, detectedTemplate?.templateId, extractCurve, getCurveBounds]);
+
+  // Handle opening the export modal
+  const handleExport = useCallback(() => {
+    if (!gridCalibration || curvePoints.length === 0 || !detectedTemplate?.templateId) return;
+    setIsExportModalOpen(true);
+  }, [gridCalibration, curvePoints.length, detectedTemplate?.templateId]);
 
   // Show grid overlay when calibration exists and viewing grid or curve
   const showGridOverlay = gridCalibration !== null && (viewMode === "original" || viewMode === "curve");
-  const hasCurveBounds = xMin !== null || xMax !== null;
-  const showCurveOverlay = viewMode === "curve" && (
-    (showCurve && curvePoints.length > 0) || hasCurveBounds
-  );
-  const canExtractCurve = !!originalImage && !!detectedTemplate?.templateId && !!imagePath;
+  const showCurveOverlay = viewMode === "curve" && showCurve && curvePoints.length > 0;
 
-  // Keyboard shortcuts for switching views (0-2) and curve undo/redo
+  // Keyboard shortcuts for switching views (0-2), curve undo/redo, and delete points
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -274,6 +289,13 @@ function App() {
         }
       }
 
+      // Delete key to remove selected curve points
+      if ((e.key === "Delete" || e.key === "Backspace") && viewMode === "curve") {
+        e.preventDefault();
+        deleteSelectedPoints();
+        return;
+      }
+
       switch (e.key) {
         case "0":
           if (originalImage) setViewMode("image");
@@ -289,7 +311,7 @@ function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [originalImage, setViewMode, handleCurveView, viewMode, undoCurve, redoCurve]);
+  }, [originalImage, setViewMode, handleCurveView, viewMode, undoCurve, redoCurve, deleteSelectedPoints]);
 
   const isViewActive = (mode: ViewMode): boolean => viewMode === mode;
 
@@ -336,8 +358,20 @@ function App() {
         </div>
       </header>
 
+      {/* Global notification toast */}
+      {notification && (
+        <div className="global-notification">
+          <span className="notification-icon">&#10003;</span>
+          {notification}
+        </div>
+      )}
+
       <CalibrationModal />
-      <CurveBoundsModal />
+      <ExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        onExportSuccess={() => setNotification("Exported CSV")}
+      />
 
       <div className="main-layout">
         <aside className="sidebar">
@@ -380,27 +414,7 @@ function App() {
               <div className="panel">
                 <h2>Curve</h2>
 
-                <div className="bounds-section">
-                  <button onClick={openBoundsModal} className="btn btn-secondary">
-                    {xMin !== null ? "Re-pick bounds" : "Set curve bounds"}
-                  </button>
-                  {xMin !== null && xMax !== null && (
-                    <div className="bounds-info">
-                      <span>L: {Math.round(xMin)}px &nbsp; R: {Math.round(xMax)}px</span>
-                      <button onClick={clearBounds} className="btn btn-sm" title="Remove bounds">
-                        Clear
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <button
-                  onClick={handleExtractCurve}
-                  disabled={!canExtractCurve || isExtracting}
-                  className="btn btn-primary"
-                >
-                  {isExtracting ? "Extracting..." : "Re-extract Curve"}
-                </button>
+                {isExtracting && <p className="curve-info">Extracting...</p>}
                 {curvePoints.length > 0 && (
                   <>
                     <p className="curve-info">{curvePoints.length} points</p>
@@ -422,13 +436,23 @@ function App() {
                         Redo
                       </button>
                     </div>
-                    <button
-                      onClick={resetCurveEdits}
-                      className="btn btn-secondary"
-                      title="Reset all edits to original extraction"
-                    >
-                      Reset Edits
-                    </button>
+                    <div className="curve-controls">
+                      <button
+                        onClick={resetCurveEdits}
+                        className="btn btn-secondary"
+                        title="Reset all edits to original extraction"
+                      >
+                        Reset Edits
+                      </button>
+                      <button
+                        onClick={handleExtractCurve}
+                        disabled={isExtracting}
+                        className="btn btn-secondary"
+                        title="Re-extract curve from image"
+                      >
+                        Re-extract
+                      </button>
+                    </div>
                     <label className="curve-toggle">
                       <input
                         type="checkbox"
@@ -437,6 +461,14 @@ function App() {
                       />
                       Show Curve
                     </label>
+                    <button
+                      onClick={handleExport}
+                      disabled={!gridCalibration}
+                      className="btn btn-primary"
+                      title="Export curve data to CSV"
+                    >
+                      Export CSV
+                    </button>
                   </>
                 )}
                 {curveError && <p className="curve-error">{curveError}</p>}

@@ -39,6 +39,9 @@ export function useProcessing() {
           horizontalSpacing: result.derived.horizontal_spacing ?? 0,
           horizontalPositions: result.derived.horizontal_positions ?? [],
           horizontalTopTemp: result.derived.horizontal_top_temp ?? 0,
+          // Reference values for time/temp calculation
+          referenceHour: result.derived.reference_hour ?? 12,
+          referenceMinute: result.derived.reference_minute ?? 0,
           // Rotation from horizontal line calibration (step 1-2)
           rotationAngle: result.derived.rotation_angle ?? 0,
           // Metadata
