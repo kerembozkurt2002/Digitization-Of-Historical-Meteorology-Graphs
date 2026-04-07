@@ -281,8 +281,9 @@ def cmd_extract_curve(args):
         # Extract curve
         x_min = getattr(args, 'x_min', None)
         x_max = getattr(args, 'x_max', None)
+        y_hint = getattr(args, 'y_hint', None)
         segmenter = CurveSegmenter()
-        result = segmenter.extract(normalized, calibration, sample_interval, x_min, x_max)
+        result = segmenter.extract(normalized, calibration, sample_interval, x_min, x_max, y_hint)
 
         response = {
             "success": result.success,
@@ -342,6 +343,8 @@ def main():
                                 help='Left X bound in image pixels (optional)')
     extract_parser.add_argument('--x-max', type=int, default=None,
                                 help='Right X bound in image pixels (optional)')
+    extract_parser.add_argument('--y-hint', type=int, default=None,
+                                help='Y coordinate hint for curve start (optional)')
     extract_parser.set_defaults(func=cmd_extract_curve)
 
     args = parser.parse_args()

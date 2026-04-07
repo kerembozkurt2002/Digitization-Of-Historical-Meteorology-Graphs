@@ -25,6 +25,7 @@ export function CurveBoundsModal() {
   const [zoom, setZoom] = useState(1);
   const [phase, setPhase] = useState<Phase>("left");
   const [leftX, setLeftX] = useState<number | null>(null);
+  const [leftY, setLeftY] = useState<number | null>(null);
   const [rightX, setRightX] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
 
@@ -116,7 +117,26 @@ export function CurveBoundsModal() {
 
     if (leftX !== null) drawLabel(leftX, `L: ${Math.round(leftX)}`);
     if (rightX !== null) drawLabel(rightX, `R: ${Math.round(rightX)}`);
-  }, [imageWidth, imageHeight, zoom, leftX, rightX, hoverX, phase]);
+
+    // Draw a crosshair at the left click position to show Y hint was captured
+    if (leftX !== null && leftY !== null) {
+      const cx = leftX * zoom;
+      const cy = leftY * zoom;
+      ctx.save();
+      ctx.strokeStyle = "#00e5ff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx - 12, cy);
+      ctx.lineTo(cx + 12, cy);
+      ctx.moveTo(cx, cy - 12);
+      ctx.lineTo(cx, cy + 12);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }, [imageWidth, imageHeight, zoom, leftX, leftY, rightX, hoverX, phase]);
 
   // Redraw whenever anything relevant changes
   useEffect(() => {
@@ -140,10 +160,11 @@ export function CurveBoundsModal() {
 
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent) => {
-      const { nx } = canvasToNatural(e.clientX, e.clientY);
+      const { nx, ny } = canvasToNatural(e.clientX, e.clientY);
 
       if (phase === "left") {
         setLeftX(nx);
+        setLeftY(ny);
         setPhase("right");
       } else if (phase === "right") {
         setRightX(nx);
@@ -167,13 +188,14 @@ export function CurveBoundsModal() {
 
   const handleApply = useCallback(() => {
     if (leftX !== null && rightX !== null) {
-      setBounds(leftX, rightX);
+      setBounds(leftX, rightX, leftY ?? undefined);
       closeBoundsModal();
     }
-  }, [leftX, rightX, setBounds, closeBoundsModal]);
+  }, [leftX, leftY, rightX, setBounds, closeBoundsModal]);
 
   const handleReset = useCallback(() => {
     setLeftX(null);
+    setLeftY(null);
     setRightX(null);
     setPhase("left");
     setHoverX(null);

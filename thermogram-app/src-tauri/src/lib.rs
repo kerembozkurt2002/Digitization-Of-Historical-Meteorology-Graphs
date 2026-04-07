@@ -226,10 +226,11 @@ fn save_calibration_simple(
 }
 
 #[tauri::command]
-fn extract_curve(image_path: String, template_id: String, sample_interval: Option<i32>, x_min: Option<i32>, x_max: Option<i32>) -> Result<ExtractCurveResponse, String> {
+fn extract_curve(image_path: String, template_id: String, sample_interval: Option<i32>, x_min: Option<i32>, x_max: Option<i32>, y_hint: Option<i32>) -> Result<ExtractCurveResponse, String> {
     let interval_str = sample_interval.unwrap_or(5).to_string();
     let x_min_str = x_min.map(|v| v.to_string());
     let x_max_str = x_max.map(|v| v.to_string());
+    let y_hint_str = y_hint.map(|v| v.to_string());
 
     let mut args = vec![
         "extract-curve",
@@ -244,6 +245,10 @@ fn extract_curve(image_path: String, template_id: String, sample_interval: Optio
     }
     if let Some(ref v) = x_max_str {
         args.push("--x-max");
+        args.push(v);
+    }
+    if let Some(ref v) = y_hint_str {
+        args.push("--y-hint");
         args.push(v);
     }
 

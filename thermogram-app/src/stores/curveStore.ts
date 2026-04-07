@@ -31,9 +31,10 @@ interface CurveState {
   isBoundsModalOpen: boolean;
   xMin: number | null;
   xMax: number | null;
+  yHint: number | null;
 
   // Actions
-  extractCurve: (imagePath: string, templateId: string, sampleInterval?: number, xMin?: number, xMax?: number) => Promise<boolean>;
+  extractCurve: (imagePath: string, templateId: string, sampleInterval?: number, xMin?: number, xMax?: number, yHint?: number) => Promise<boolean>;
   setPoints: (points: CurvePoint[]) => void;
   updatePoint: (index: number, x: number, y: number) => void;
   updateMultiplePointsY: (indices: number[], deltaY: number) => void;
@@ -54,7 +55,7 @@ interface CurveState {
   // Bounds actions
   openBoundsModal: () => void;
   closeBoundsModal: () => void;
-  setBounds: (xMin: number, xMax: number) => void;
+  setBounds: (xMin: number, xMax: number, yHint?: number) => void;
   clearBounds: () => void;
 }
 
@@ -82,8 +83,9 @@ export const useCurveStore = create<CurveState>((set, get) => ({
   isBoundsModalOpen: false,
   xMin: null,
   xMax: null,
+  yHint: null,
 
-  extractCurve: async (imagePath, templateId, sampleInterval = 5, xMin?: number, xMax?: number) => {
+  extractCurve: async (imagePath, templateId, sampleInterval = 5, xMin?: number, xMax?: number, yHint?: number) => {
     set({ isExtracting: true, error: null });
 
     try {
@@ -94,6 +96,7 @@ export const useCurveStore = create<CurveState>((set, get) => ({
       };
       if (xMin !== undefined) params.xMin = Math.round(xMin);
       if (xMax !== undefined) params.xMax = Math.round(xMax);
+      if (yHint !== undefined) params.yHint = Math.round(yHint);
 
       const result = await invoke<ExtractCurveResponse>("extract_curve", params);
 
@@ -220,16 +223,17 @@ export const useCurveStore = create<CurveState>((set, get) => ({
       isBoundsModalOpen: false,
       xMin: null,
       xMax: null,
+      yHint: null,
     }),
 
   openBoundsModal: () => set({ isBoundsModalOpen: true }),
 
   closeBoundsModal: () => set({ isBoundsModalOpen: false }),
 
-  setBounds: (xMin, xMax) =>
-    set({ xMin: Math.min(xMin, xMax), xMax: Math.max(xMin, xMax) }),
+  setBounds: (xMin, xMax, yHint?) =>
+    set({ xMin: Math.min(xMin, xMax), xMax: Math.max(xMin, xMax), yHint: yHint ?? null }),
 
-  clearBounds: () => set({ xMin: null, xMax: null }),
+  clearBounds: () => set({ xMin: null, xMax: null, yHint: null }),
 
   deleteSelectedPoints: () => {
     const state = get();

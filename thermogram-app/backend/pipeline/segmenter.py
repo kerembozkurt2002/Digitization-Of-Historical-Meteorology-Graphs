@@ -45,6 +45,7 @@ class CurveSegmenter:
         self,
         margin_ratio: float = 0.08,
         max_y_step: int = 10,
+        step_penalty: float = 1.5,
         h_blur_size: int = 11,
         smooth_window: int = 31,
         smooth_polyorder: int = 3,
@@ -53,6 +54,7 @@ class CurveSegmenter:
     ):
         self.margin_ratio = margin_ratio
         self.max_y_step = max_y_step
+        self.step_penalty = step_penalty
         self.h_blur_size = h_blur_size
         self.smooth_window = smooth_window
         self.smooth_polyorder = smooth_polyorder
@@ -66,6 +68,7 @@ class CurveSegmenter:
         sample_interval: int = 5,
         x_min: Optional[int] = None,
         x_max: Optional[int] = None,
+        y_hint: Optional[int] = None,
     ) -> ExtractCurveResult:
         h, w = image.shape[:2]
 
@@ -101,6 +104,12 @@ class CurveSegmenter:
         # Step 3: cost = max - score (low cost = dark ink)
         cost = float(roi.max()) - roi      # shape (H, W')
 
+        # Apply global y_hint gravity so the path stays near the user's click
+        if y_hint is not None:
+            hint_row = max(0, min(H - 1, y_hint - y0))
+            gravity = np.abs(np.arange(H) - hint_row).astype(np.float64) * 0.5
+            cost = cost + gravity[:, None]
+
         # Step 4: Viterbi DP  (left → right), vectorised over rows
         k = self.max_y_step
         dp = np.full((H, W), np.inf, dtype=np.float64)
@@ -110,15 +119,16 @@ class CurveSegmenter:
 
         # Build a (H, 2k+1) matrix of shifted copies of the previous column
         # so we can compute min across the Y-neighbourhood in one shot.
-        offsets = np.arange(-k, k + 1)              # e.g. [-3,-2,-1,0,1,2,3]
+        offsets = np.arange(-k, k + 1)              # e.g. [-10,...,0,...,10]
+        transition_cost = np.abs(offsets).astype(np.float64) * self.step_penalty
         row_idx = np.arange(H)[:, None] + offsets    # (H, 2k+1) neighbour rows
         row_idx_clipped = np.clip(row_idx, 0, H - 1)
 
         arange_H = np.arange(H)
         for x in range(1, W):
-            neighbours = dp[row_idx_clipped, x - 1]          # (H, 2k+1)
-            best_local = np.argmin(neighbours, axis=1)        # index within window
-            best_row = row_idx_clipped[arange_H, best_local]  # absolute row index
+            neighbours = dp[row_idx_clipped, x - 1] + transition_cost  # (H, 2k+1)
+            best_local = np.argmin(neighbours, axis=1)
+            best_row = row_idx_clipped[arange_H, best_local]
             dp[:, x] = cost[:, x] + neighbours[arange_H, best_local]
             parent[:, x] = best_row
 
@@ -176,10 +186,11 @@ def extract_curve(
     sample_interval: int = 5,
     x_min: Optional[int] = None,
     x_max: Optional[int] = None,
+    y_hint: Optional[int] = None,
 ) -> ExtractCurveResult:
     """Convenience function to extract the curve from an image."""
     segmenter = CurveSegmenter()
-    return segmenter.extract(image, calibration, sample_interval, x_min, x_max)
+    return segmenter.extract(image, calibration, sample_interval, x_min, x_max, y_hint)
 
 
 __all__ = ["CurveSegmenter", "CurvePoint", "ExtractCurveResult", "extract_curve"]

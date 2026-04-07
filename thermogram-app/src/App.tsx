@@ -46,6 +46,7 @@ function App() {
     isBoundsModalOpen,
     xMin: curveXMin,
     xMax: curveXMax,
+    yHint: curveYHint,
     openBoundsModal,
     clearBounds,
   } = useCurveStore();
@@ -223,28 +224,28 @@ function App() {
   // Get curve bounds: prefer manual bounds from store, fall back to grid calibration
   const getCurveBounds = useCallback(() => {
     if (curveXMin !== null && curveXMax !== null) {
-      return { xMin: curveXMin, xMax: curveXMax };
+      return { xMin: curveXMin, xMax: curveXMax, yHint: curveYHint ?? undefined };
     }
     if (gridCalibration?.linePositions && gridCalibration.linePositions.length >= 2) {
       const positions = gridCalibration.linePositions;
-      return { xMin: Math.min(...positions), xMax: Math.max(...positions) };
+      return { xMin: Math.min(...positions), xMax: Math.max(...positions), yHint: undefined };
     }
-    return { xMin: undefined, xMax: undefined };
-  }, [curveXMin, curveXMax, gridCalibration]);
+    return { xMin: undefined, xMax: undefined, yHint: undefined };
+  }, [curveXMin, curveXMax, curveYHint, gridCalibration]);
 
   // Handle extracting the curve with automatic bounds
   const handleExtractCurve = useCallback(async () => {
     if (!imagePath || !detectedTemplate?.templateId) return;
-    const { xMin, xMax } = getCurveBounds();
-    await extractCurve(imagePath, detectedTemplate.templateId, 5, xMin, xMax);
+    const { xMin, xMax, yHint } = getCurveBounds();
+    await extractCurve(imagePath, detectedTemplate.templateId, 5, xMin, xMax, yHint);
   }, [imagePath, detectedTemplate?.templateId, extractCurve, getCurveBounds]);
 
   // Auto-extract curve when switching to curve view if not already extracted
   const handleCurveView = useCallback(() => {
     setViewMode("curve");
     if (curvePoints.length === 0 && !isExtracting && imagePath && detectedTemplate?.templateId) {
-      const { xMin, xMax } = getCurveBounds();
-      extractCurve(imagePath, detectedTemplate.templateId, 5, xMin, xMax);
+      const { xMin, xMax, yHint } = getCurveBounds();
+      extractCurve(imagePath, detectedTemplate.templateId, 5, xMin, xMax, yHint);
     }
   }, [setViewMode, curvePoints.length, isExtracting, imagePath, detectedTemplate?.templateId, extractCurve, getCurveBounds]);
 
@@ -253,11 +254,11 @@ function App() {
   useEffect(() => {
     if (prevBoundsModalOpen.current && !isBoundsModalOpen && curveXMin !== null && curveXMax !== null) {
       if (imagePath && detectedTemplate?.templateId) {
-        extractCurve(imagePath, detectedTemplate.templateId, 5, curveXMin, curveXMax);
+        extractCurve(imagePath, detectedTemplate.templateId, 5, curveXMin, curveXMax, curveYHint ?? undefined);
       }
     }
     prevBoundsModalOpen.current = isBoundsModalOpen;
-  }, [isBoundsModalOpen, curveXMin, curveXMax, imagePath, detectedTemplate?.templateId, extractCurve]);
+  }, [isBoundsModalOpen, curveXMin, curveXMax, curveYHint, imagePath, detectedTemplate?.templateId, extractCurve]);
 
   // Handle opening the export modal
   const handleExport = useCallback(() => {
