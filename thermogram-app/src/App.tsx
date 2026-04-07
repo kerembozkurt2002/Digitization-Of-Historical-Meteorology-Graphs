@@ -9,6 +9,7 @@ import { GridOverlay } from "./components/Workspace/GridOverlay";
 import { CurveOverlay } from "./components/Workspace/CurveOverlay";
 import { TemplateSelector } from "./components/Sidebar/TemplateSelector";
 import { CalibrationModal } from "./components/CalibrationModal";
+import { CurveBoundsModal } from "./components/CurveBoundsModal";
 import { ExportModal } from "./components/ExportModal";
 import { useImageLoader } from "./hooks/useImageLoader";
 import type { ViewMode, GetCalibrationResponse } from "./types";
@@ -42,6 +43,11 @@ function App() {
     canUndo: canUndoCurve,
     canRedo: canRedoCurve,
     deleteSelectedPoints,
+    isBoundsModalOpen,
+    xMin: curveXMin,
+    xMax: curveXMax,
+    openBoundsModal,
+    clearBounds,
   } = useCurveStore();
 
   // Handle opening calibration modal
@@ -214,17 +220,17 @@ function App() {
   const zoomOut = useCallback(() => setZoom((z) => Math.max(0.25, z - 0.25)), []);
   const zoomReset = useCallback(() => setZoom(1.0), []);
 
-  // Get curve bounds from grid calibration (first and last vertical lines)
+  // Get curve bounds: prefer manual bounds from store, fall back to grid calibration
   const getCurveBounds = useCallback(() => {
-    if (!gridCalibration?.linePositions || gridCalibration.linePositions.length < 2) {
-      return { xMin: undefined, xMax: undefined };
+    if (curveXMin !== null && curveXMax !== null) {
+      return { xMin: curveXMin, xMax: curveXMax };
     }
-    const positions = gridCalibration.linePositions;
-    return {
-      xMin: Math.min(...positions),
-      xMax: Math.max(...positions),
-    };
-  }, [gridCalibration]);
+    if (gridCalibration?.linePositions && gridCalibration.linePositions.length >= 2) {
+      const positions = gridCalibration.linePositions;
+      return { xMin: Math.min(...positions), xMax: Math.max(...positions) };
+    }
+    return { xMin: undefined, xMax: undefined };
+  }, [curveXMin, curveXMax, gridCalibration]);
 
   // Handle extracting the curve with automatic bounds
   const handleExtractCurve = useCallback(async () => {
@@ -241,6 +247,17 @@ function App() {
       extractCurve(imagePath, detectedTemplate.templateId, 5, xMin, xMax);
     }
   }, [setViewMode, curvePoints.length, isExtracting, imagePath, detectedTemplate?.templateId, extractCurve, getCurveBounds]);
+
+  // Auto-extract when bounds modal closes with valid bounds
+  const prevBoundsModalOpen = useRef(false);
+  useEffect(() => {
+    if (prevBoundsModalOpen.current && !isBoundsModalOpen && curveXMin !== null && curveXMax !== null) {
+      if (imagePath && detectedTemplate?.templateId) {
+        extractCurve(imagePath, detectedTemplate.templateId, 5, curveXMin, curveXMax);
+      }
+    }
+    prevBoundsModalOpen.current = isBoundsModalOpen;
+  }, [isBoundsModalOpen, curveXMin, curveXMax, imagePath, detectedTemplate?.templateId, extractCurve]);
 
   // Handle opening the export modal
   const handleExport = useCallback(() => {
@@ -367,6 +384,7 @@ function App() {
       )}
 
       <CalibrationModal />
+      <CurveBoundsModal />
       <ExportModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
@@ -413,6 +431,36 @@ function App() {
             {viewMode === "curve" && (
               <div className="panel">
                 <h2>Curve</h2>
+
+                {/* Bounds section */}
+                <div className="bounds-section">
+                  <button
+                    className="btn btn-secondary"
+                    onClick={openBoundsModal}
+                    disabled={!originalImage}
+                    title="Select left/right curve bounds on the image"
+                  >
+                    Set Curve Bounds
+                  </button>
+                  {curveXMin !== null && curveXMax !== null ? (
+                    <div className="bounds-info">
+                      <span className="bounds-label">
+                        L: {Math.round(curveXMin)}px &nbsp; R: {Math.round(curveXMax)}px
+                      </span>
+                      <button
+                        className="btn btn-secondary btn-small"
+                        onClick={clearBounds}
+                        title="Clear manual bounds"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="bounds-hint">
+                      No manual bounds — using grid or full image
+                    </p>
+                  )}
+                </div>
 
                 {isExtracting && <p className="curve-info">Extracting...</p>}
                 {curvePoints.length > 0 && (

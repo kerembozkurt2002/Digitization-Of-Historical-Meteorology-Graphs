@@ -483,7 +483,7 @@
   margin-top: 0.35rem;
 }
 
-.bounds-info .btn-sm {
+.bounds-info .btn-small {
   padding: 0.15rem 0.5rem;
   font-size: 0.7rem;
   min-width: unset;
@@ -491,7 +491,7 @@
 
 .bounds-hint {
   font-size: 0.75rem;
-  color: #00ccff;
+  color: #8b8b8b;
   margin-top: 0.35rem;
   font-style: italic;
 }

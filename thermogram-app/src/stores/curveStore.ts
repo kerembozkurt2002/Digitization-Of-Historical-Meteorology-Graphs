@@ -21,11 +21,16 @@ interface CurveState {
   error: string | null;
 
   selectedPointIndex: number | null;
-  selectedPointIndices: number[]; // Multi-selection
+  selectedPointIndices: number[];
   dragPointIndex: number | null;
 
   editHistory: CurveEdit[];
   historyIndex: number;
+
+  // Manual bounds (user-picked left/right X limits in natural image px)
+  isBoundsModalOpen: boolean;
+  xMin: number | null;
+  xMax: number | null;
 
   // Actions
   extractCurve: (imagePath: string, templateId: string, sampleInterval?: number, xMin?: number, xMax?: number) => Promise<boolean>;
@@ -45,6 +50,12 @@ interface CurveState {
   canRedo: () => boolean;
   clear: () => void;
   deleteSelectedPoints: () => void;
+
+  // Bounds actions
+  openBoundsModal: () => void;
+  closeBoundsModal: () => void;
+  setBounds: (xMin: number, xMax: number) => void;
+  clearBounds: () => void;
 }
 
 function pushHistory(state: CurveState, newPoints: CurvePoint[]): Partial<CurveState> {
@@ -68,6 +79,9 @@ export const useCurveStore = create<CurveState>((set, get) => ({
   dragPointIndex: null,
   editHistory: [],
   historyIndex: -1,
+  isBoundsModalOpen: false,
+  xMin: null,
+  xMax: null,
 
   extractCurve: async (imagePath, templateId, sampleInterval = 5, xMin?: number, xMax?: number) => {
     set({ isExtracting: true, error: null });
@@ -203,7 +217,19 @@ export const useCurveStore = create<CurveState>((set, get) => ({
       dragPointIndex: null,
       editHistory: [],
       historyIndex: -1,
+      isBoundsModalOpen: false,
+      xMin: null,
+      xMax: null,
     }),
+
+  openBoundsModal: () => set({ isBoundsModalOpen: true }),
+
+  closeBoundsModal: () => set({ isBoundsModalOpen: false }),
+
+  setBounds: (xMin, xMax) =>
+    set({ xMin: Math.min(xMin, xMax), xMax: Math.max(xMin, xMax) }),
+
+  clearBounds: () => set({ xMin: null, xMax: null }),
 
   deleteSelectedPoints: () => {
     const state = get();

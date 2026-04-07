@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useImageStore } from "../../stores/imageStore";
 import { useCurveStore } from "../../stores/curveStore";
+import type { CurvePoint } from "../../types";
 import {
   canvasToNatural,
   getContainedImageLayout,
@@ -35,7 +36,8 @@ interface SelectionBox {
 const POINT_RADIUS = 3;
 const POINT_HOVER_RADIUS = 5;
 const POINT_HIT_RADIUS = 10;
-const SPARSE_DOT_INTERVAL = 20;
+const SPARSE_DOT_INTERVAL = 10;
+const INFLUENCE_SIGMA = 5;
 const CURVE_COLOR = "#ff2222";
 const CURVE_EDITED_COLOR = "#ff8800";
 const POINT_COLOR = "rgba(255,68,68,0.45)";
@@ -56,7 +58,8 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
     selectedPointIndex,
     selectedPointIndices,
     dragPointIndex,
-    updatePoint,
+    xMin,
+    xMax,
     setSelectedPointIndex,
     setSelectedPointIndices,
     setDragPointIndex,
@@ -67,6 +70,26 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
   const [isMultiDragging, setIsMultiDragging] = useState(false);
   const [multiDragStartY, setMultiDragStartY] = useState<number | null>(null);
   const [multiDragLastY, setMultiDragLastY] = useState<number | null>(null);
+
+  // Snapshot of points at drag start — Gaussian influence is applied from this
+  // baseline so that repeated mouse-move events don't compound.
+  const dragStartPointsRef = useRef<CurvePoint[] | null>(null);
+
+  const applyGaussianInfluence = useCallback(
+    (pts: CurvePoint[], centerIdx: number, deltaY: number): CurvePoint[] => {
+      const result = [...pts];
+      const radius = Math.ceil(INFLUENCE_SIGMA * 3);
+      for (let d = -radius; d <= radius; d++) {
+        const j = centerIdx + d;
+        if (j < 0 || j >= result.length) continue;
+        const weight = Math.exp(-(d * d) / (2 * INFLUENCE_SIGMA * INFLUENCE_SIGMA));
+        const newY = Math.max(0, Math.min(imageHeight, result[j].y + deltaY * weight));
+        result[j] = { x: result[j].x, y: newY };
+      }
+      return result;
+    },
+    [imageHeight]
+  );
 
   const layout = useMemo(
     () => getContainedImageLayout(width, height, imageWidth, imageHeight),
@@ -116,10 +139,32 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
         return !r || Math.abs(p.x - r.x) > 0.01 || Math.abs(p.y - r.y) > 0.01;
       });
 
+    // Draw vertical bound lines if set
+    if (xMin !== null && xMax !== null) {
+      const drawBoundLine = (natX: number) => {
+        const { sx } = toScreen(natX, 0);
+        ctx.save();
+        ctx.setLineDash([6, 4]);
+        ctx.strokeStyle = "rgba(0, 229, 255, 0.55)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(sx, 0);
+        ctx.lineTo(sx, height);
+        ctx.stroke();
+        ctx.restore();
+      };
+      drawBoundLine(xMin);
+      drawBoundLine(xMax);
+    }
+
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
-    const drawStroke = (lineWidth: number, strokeStyle: string) => {
+    const drawStroke = (lineWidth: number, strokeStyle: string, shadow?: boolean) => {
       ctx.beginPath();
+      if (shadow) {
+        ctx.shadowColor = strokeStyle;
+        ctx.shadowBlur = 6;
+      }
       ctx.strokeStyle = strokeStyle;
       ctx.lineWidth = lineWidth;
       for (let i = 0; i < points.length; i++) {
@@ -128,8 +173,14 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
         else ctx.lineTo(sx, sy);
       }
       ctx.stroke();
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
     };
+    // Glow layer
+    drawStroke(4, "rgba(255,34,34,0.25)", true);
+    // Shadow outline
     drawStroke(2.5, "rgba(0,0,0,0.4)");
+    // Main curve
     drawStroke(1.5, isEdited ? CURVE_EDITED_COLOR : CURVE_COLOR);
 
     for (let i = 0; i < points.length; i++) {
@@ -206,7 +257,7 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
   }, [
     width, height, points, rawPoints, showCurve,
     selectedPointIndex, selectedPointIndices, dragPointIndex,
-    hoveredIndex, toScreen, selectionBox, isMultiDragging,
+    hoveredIndex, toScreen, selectionBox, isMultiDragging, xMin, xMax,
   ]);
 
   const findNearestPoint = useCallback(
@@ -292,6 +343,7 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
           setSelectedPointIndices([]);
           if (idx !== null) {
             e.stopPropagation();
+            dragStartPointsRef.current = [...useCurveStore.getState().points];
             setDragPointIndex(idx);
             setSelectedPointIndex(idx);
           } else {
@@ -303,6 +355,7 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
         const idx = findNearestPoint(sx, sy);
         if (idx !== null) {
           e.stopPropagation();
+          dragStartPointsRef.current = [...useCurveStore.getState().points];
           setDragPointIndex(idx);
           setSelectedPointIndex(idx);
         } else {
@@ -311,7 +364,7 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
       }
     },
     [getCanvasPos, findNearestPoint, setDragPointIndex, setSelectedPointIndex,
-     setSelectedPointIndices, selectedPointIndices, toImage]
+     setSelectedPointIndices, selectedPointIndices, toImage, points]
   );
 
   const handleMouseMove = useCallback(
@@ -323,12 +376,11 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
         e.stopPropagation();
         setSelectionBox(prev => prev ? { ...prev, endX: sx, endY: sy } : null);
       } else if (isMultiDragging && multiDragLastY !== null) {
-        // Multi-point drag
+        // Multi-point drag — uniform shift for all selected points
         e.stopPropagation();
         const { ny: currentY } = toImage(sx, sy);
         const deltaY = currentY - multiDragLastY;
 
-        // Update points in real-time
         const curveStore = useCurveStore.getState();
         const newPoints = [...curveStore.points];
         for (const idx of selectedPointIndices) {
@@ -340,22 +392,23 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
         useCurveStore.setState({ points: newPoints });
         setMultiDragLastY(currentY);
       } else if (dragPointIndex !== null) {
-        // Single point drag
+        // Single point drag with Gaussian influence on neighbors
         e.stopPropagation();
         let { ny: iy } = toImage(sx, sy);
         iy = Math.max(0, Math.min(imageHeight, iy));
-        const curveStore = useCurveStore.getState();
-        const newPoints = [...curveStore.points];
-        // Only update Y, keep X fixed to maintain point order
-        newPoints[dragPointIndex] = { x: newPoints[dragPointIndex].x, y: iy };
-        useCurveStore.setState({ points: newPoints });
+        const origPts = dragStartPointsRef.current;
+        if (origPts) {
+          const deltaY = iy - origPts[dragPointIndex].y;
+          const newPoints = applyGaussianInfluence(origPts, dragPointIndex, deltaY);
+          useCurveStore.setState({ points: newPoints });
+        }
       } else {
         const idx = findNearestPoint(sx, sy);
         setHoveredIndex(idx);
       }
     },
     [getCanvasPos, selectionBox, isMultiDragging, multiDragLastY, dragPointIndex,
-     toImage, imageHeight, findNearestPoint, selectedPointIndices]
+     toImage, imageHeight, findNearestPoint, selectedPointIndices, applyGaussianInfluence]
   );
 
   const handleMouseUp = useCallback(
@@ -382,23 +435,22 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
         setMultiDragStartY(null);
         setMultiDragLastY(null);
       } else if (dragPointIndex !== null) {
-        // Finish single point drag
+        // Finish single point drag — commit Gaussian-influenced result to history
         e.stopPropagation();
-        let { ny: iy } = toImage(sx, sy);
-        iy = Math.max(0, Math.min(imageHeight, iy));
-        // Only update Y, keep X fixed to maintain point order
-        const currentX = useCurveStore.getState().points[dragPointIndex].x;
-        updatePoint(dragPointIndex, currentX, iy);
+        const curveStore = useCurveStore.getState();
+        curveStore.setPoints([...curveStore.points]);
+        dragStartPointsRef.current = null;
         setDragPointIndex(null);
       }
     },
     [selectionBox, isMultiDragging, multiDragStartY, dragPointIndex, getCanvasPos,
-     toImage, imageHeight, updatePoint, setDragPointIndex, findPointsInBox, setSelectedPointIndices]
+     toImage, imageHeight, setDragPointIndex, findPointsInBox, setSelectedPointIndices]
   );
 
   const handleMouseLeave = useCallback(() => {
     setHoveredIndex(null);
     if (dragPointIndex !== null) {
+      dragStartPointsRef.current = null;
       setDragPointIndex(null);
     }
     if (selectionBox) {

@@ -44,9 +44,9 @@ class CurveSegmenter:
     def __init__(
         self,
         margin_ratio: float = 0.08,
-        max_y_step: int = 3,
-        h_blur_size: int = 7,
-        smooth_window: int = 15,
+        max_y_step: int = 10,
+        h_blur_size: int = 11,
+        smooth_window: int = 31,
         smooth_polyorder: int = 3,
         subpixel_half: int = 5,
         debug: bool = False,
