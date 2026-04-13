@@ -44,11 +44,35 @@ function App() {
     canRedo: canRedoCurve,
     deleteSelectedPoints,
     isBoundsModalOpen,
+    curveBounds,
     xMin: curveXMin,
     xMax: curveXMax,
     yHint: curveYHint,
+    yHintEnd: curveYHintEnd,
     openBoundsModal,
     clearBounds,
+    removeBoundSegment,
+    isDrawing,
+    drawingStrokes,
+    activeStrokeId,
+    setDrawingMode,
+    startNewStroke,
+    removeStroke,
+    clearDrawing,
+    saveAnnotation,
+    isSavingAnnotation,
+    recalculateFromDrawing,
+    isRecalculating,
+    getTotalDrawingPoints,
+    isRefineSelecting,
+    refineXMin,
+    refineXMax,
+    refineYMin,
+    refineYMax,
+    setRefineSelecting,
+    clearRefineArea,
+    refineInArea,
+    isRefining,
   } = useCurveStore();
 
   // Handle opening calibration modal
@@ -224,41 +248,55 @@ function App() {
   // Get curve bounds: prefer manual bounds from store, fall back to grid calibration
   const getCurveBounds = useCallback(() => {
     if (curveXMin !== null && curveXMax !== null) {
-      return { xMin: curveXMin, xMax: curveXMax, yHint: curveYHint ?? undefined };
+      return { xMin: curveXMin, xMax: curveXMax, yHint: curveYHint ?? undefined, yHintEnd: curveYHintEnd ?? undefined };
     }
     if (gridCalibration?.linePositions && gridCalibration.linePositions.length >= 2) {
       const positions = gridCalibration.linePositions;
-      return { xMin: Math.min(...positions), xMax: Math.max(...positions), yHint: undefined };
+      return { xMin: Math.min(...positions), xMax: Math.max(...positions), yHint: undefined, yHintEnd: undefined };
     }
-    return { xMin: undefined, xMax: undefined, yHint: undefined };
-  }, [curveXMin, curveXMax, curveYHint, gridCalibration]);
+    return { xMin: undefined, xMax: undefined, yHint: undefined, yHintEnd: undefined };
+  }, [curveXMin, curveXMax, curveYHint, curveYHintEnd, gridCalibration]);
 
   // Handle extracting the curve with automatic bounds
   const handleExtractCurve = useCallback(async () => {
     if (!imagePath || !detectedTemplate?.templateId) return;
-    const { xMin, xMax, yHint } = getCurveBounds();
-    await extractCurve(imagePath, detectedTemplate.templateId, 5, xMin, xMax, yHint);
-  }, [imagePath, detectedTemplate?.templateId, extractCurve, getCurveBounds]);
+    if (curveBounds.length >= 2) {
+      // Multi-segment: don't pass explicit overrides, let extractCurve loop over curveBounds
+      await extractCurve(imagePath, detectedTemplate.templateId, 5);
+    } else {
+      const { xMin, xMax, yHint, yHintEnd } = getCurveBounds();
+      await extractCurve(imagePath, detectedTemplate.templateId, 5, xMin, xMax, yHint, yHintEnd);
+    }
+  }, [imagePath, detectedTemplate?.templateId, extractCurve, getCurveBounds, curveBounds]);
 
   // Auto-extract curve when switching to curve view if not already extracted
   const handleCurveView = useCallback(() => {
     setViewMode("curve");
     if (curvePoints.length === 0 && !isExtracting && imagePath && detectedTemplate?.templateId) {
-      const { xMin, xMax, yHint } = getCurveBounds();
-      extractCurve(imagePath, detectedTemplate.templateId, 5, xMin, xMax, yHint);
+      if (curveBounds.length >= 2) {
+        extractCurve(imagePath, detectedTemplate.templateId, 5);
+      } else {
+        const { xMin, xMax, yHint, yHintEnd } = getCurveBounds();
+        extractCurve(imagePath, detectedTemplate.templateId, 5, xMin, xMax, yHint, yHintEnd);
+      }
     }
-  }, [setViewMode, curvePoints.length, isExtracting, imagePath, detectedTemplate?.templateId, extractCurve, getCurveBounds]);
+  }, [setViewMode, curvePoints.length, isExtracting, imagePath, detectedTemplate?.templateId, extractCurve, getCurveBounds, curveBounds]);
 
   // Auto-extract when bounds modal closes with valid bounds
   const prevBoundsModalOpen = useRef(false);
   useEffect(() => {
-    if (prevBoundsModalOpen.current && !isBoundsModalOpen && curveXMin !== null && curveXMax !== null) {
+    if (prevBoundsModalOpen.current && !isBoundsModalOpen && curveBounds.length > 0) {
       if (imagePath && detectedTemplate?.templateId) {
-        extractCurve(imagePath, detectedTemplate.templateId, 5, curveXMin, curveXMax, curveYHint ?? undefined);
+        if (curveBounds.length >= 2) {
+          extractCurve(imagePath, detectedTemplate.templateId, 5);
+        } else {
+          const b = curveBounds[0];
+          extractCurve(imagePath, detectedTemplate.templateId, 5, b.xMin, b.xMax, b.yHint, b.yHintEnd);
+        }
       }
     }
     prevBoundsModalOpen.current = isBoundsModalOpen;
-  }, [isBoundsModalOpen, curveXMin, curveXMax, curveYHint, imagePath, detectedTemplate?.templateId, extractCurve]);
+  }, [isBoundsModalOpen, curveBounds, imagePath, detectedTemplate?.templateId, extractCurve]);
 
   // Handle opening the export modal
   const handleExport = useCallback(() => {
@@ -268,7 +306,8 @@ function App() {
 
   // Show grid overlay when calibration exists and viewing grid or curve
   const showGridOverlay = gridCalibration !== null && (viewMode === "original" || viewMode === "curve");
-  const showCurveOverlay = viewMode === "curve" && showCurve && curvePoints.length > 0;
+  const hasDrawingContent = drawingStrokes.some((s) => s.points.length > 0);
+  const showCurveOverlay = viewMode === "curve" && (isDrawing || hasDrawingContent || isRefineSelecting || refineXMin !== null || (showCurve && curvePoints.length > 0));
 
   // Keyboard shortcuts for switching views (0-2), curve undo/redo, and delete points
   useEffect(() => {
@@ -443,17 +482,28 @@ function App() {
                   >
                     Set Curve Bounds
                   </button>
-                  {curveXMin !== null && curveXMax !== null ? (
+                  {curveBounds.length > 0 ? (
                     <div className="bounds-info">
-                      <span className="bounds-label">
-                        L: {Math.round(curveXMin)}px &nbsp; R: {Math.round(curveXMax)}px
-                      </span>
+                      {curveBounds.map((seg, si) => (
+                        <div key={seg.id} className="bounds-segment-row">
+                          <span className="bounds-label">
+                            Seg {si + 1}: {Math.round(seg.xMin)}–{Math.round(seg.xMax)}px
+                          </span>
+                          <button
+                            className="btn btn-secondary btn-small"
+                            onClick={() => removeBoundSegment(seg.id)}
+                            title={`Remove segment ${si + 1}`}
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      ))}
                       <button
                         className="btn btn-secondary btn-small"
                         onClick={clearBounds}
-                        title="Clear manual bounds"
+                        title="Clear all bounds"
                       >
-                        Clear
+                        Clear All
                       </button>
                     </div>
                   ) : (
@@ -461,6 +511,98 @@ function App() {
                       No manual bounds — using grid or full image
                     </p>
                   )}
+                </div>
+
+                {/* Manual drawing section */}
+                <div className="drawing-section">
+                  <h3>Manual Drawing</h3>
+                  <div className="curve-controls">
+                    <button
+                      className={`btn ${isDrawing ? "btn-active" : "btn-secondary"}`}
+                      onClick={() => setDrawingMode(!isDrawing)}
+                      disabled={!originalImage}
+                      title={isDrawing ? "Exit drawing mode" : "Enter freehand drawing mode"}
+                    >
+                      {isDrawing ? "Stop Drawing" : "Draw Curve"}
+                    </button>
+                    {isDrawing && drawingStrokes.length > 0 && (
+                      <button
+                        className="btn btn-secondary"
+                        onClick={startNewStroke}
+                        title="Add another curve stroke"
+                      >
+                        + Add Curve
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Stroke list */}
+                  {drawingStrokes.length > 0 && (
+                    <div className="stroke-list">
+                      {drawingStrokes.map((stroke) => (
+                        <div
+                          key={stroke.id}
+                          className={`stroke-item ${stroke.id === activeStrokeId ? "stroke-active" : ""}`}
+                        >
+                          <span className="stroke-label">{stroke.label}</span>
+                          <span className="stroke-pts">{stroke.points.length} pts</span>
+                          <button
+                            className="stroke-remove-btn"
+                            onClick={() => removeStroke(stroke.id)}
+                            title={`Remove ${stroke.label}`}
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      ))}
+                      <p className="curve-info">{getTotalDrawingPoints()} total points</p>
+                    </div>
+                  )}
+
+                  <div className="curve-controls">
+                    <button
+                      className="btn btn-secondary"
+                      onClick={clearDrawing}
+                      disabled={drawingStrokes.length === 0}
+                      title="Clear all drawn strokes"
+                    >
+                      Clear All
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      onClick={async () => {
+                        if (!imagePath || !detectedTemplate?.templateId) return;
+                        const result = await saveAnnotation(imagePath, detectedTemplate.templateId);
+                        if (result.success) {
+                          setNotification(`Annotation saved: ${result.path?.split("/").pop()}`);
+                        } else {
+                          setNotification(`Save failed: ${result.error}`);
+                        }
+                      }}
+                      disabled={getTotalDrawingPoints() === 0 || isSavingAnnotation || !imagePath || !detectedTemplate?.templateId}
+                      title="Save drawn curves as JSON annotation"
+                    >
+                      {isSavingAnnotation ? "Saving..." : "Save Annotation"}
+                    </button>
+                  </div>
+
+                  <button
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      if (!imagePath || !detectedTemplate?.templateId) return;
+                      const ok = await recalculateFromDrawing(imagePath, detectedTemplate.templateId);
+                      if (ok) {
+                        setNotification("Curve recalculated from drawing");
+                      } else {
+                        const err = useCurveStore.getState().error;
+                        setNotification(`Recalculate failed: ${err || "unknown error"}`);
+                      }
+                    }}
+                    disabled={getTotalDrawingPoints() === 0 || isRecalculating || !imagePath || !detectedTemplate?.templateId}
+                    title="Save drawing, clean it, and re-extract curve using it as a guide"
+                  >
+                    {isRecalculating ? "Recalculating..." : "Recalculate Extraction"}
+                  </button>
                 </div>
 
                 {isExtracting && <p className="curve-info">Extracting...</p>}
@@ -502,6 +644,69 @@ function App() {
                         Re-extract
                       </button>
                     </div>
+                    {/* Refine Area */}
+                    <div className="refine-section">
+                      <button
+                        className={`btn ${isRefineSelecting ? "btn-active" : "btn-secondary"}`}
+                        onClick={() => {
+                          if (isRefineSelecting) {
+                            setRefineSelecting(false);
+                          } else {
+                            clearRefineArea();
+                            setRefineSelecting(true);
+                          }
+                        }}
+                        disabled={isRefining}
+                        title="Select an area on the image to re-extract the curve only within that region"
+                      >
+                        {isRefineSelecting ? "Cancel Selection" : "Select Area to Refine"}
+                      </button>
+                      {refineXMin !== null && refineXMax !== null && refineYMin !== null && refineYMax !== null && (
+                        <div className="refine-info">
+                          <span className="refine-range">
+                            X: {Math.round(refineXMin)}–{Math.round(refineXMax)}px,
+                            Y: {Math.round(refineYMin)}–{Math.round(refineYMax)}px
+                          </span>
+                          <p className="refine-hint">
+                            Optionally draw the correct path in the area, then click Refine.
+                          </p>
+                          <div className="curve-controls">
+                            <button
+                              className={`btn ${isDrawing ? "btn-active" : "btn-secondary"} btn-small`}
+                              onClick={() => setDrawingMode(!isDrawing)}
+                              title={isDrawing ? "Stop drawing" : "Draw the correct curve path in the refine area"}
+                            >
+                              {isDrawing ? "Stop Draw" : "Draw"}
+                            </button>
+                            <button
+                              className="btn btn-primary"
+                              onClick={async () => {
+                                if (!imagePath || !detectedTemplate?.templateId) return;
+                                const ok = await refineInArea(imagePath, detectedTemplate.templateId);
+                                if (ok) {
+                                  setNotification("Area refined successfully");
+                                } else {
+                                  const err = useCurveStore.getState().error;
+                                  setNotification(`Refine failed: ${err || "unknown error"}`);
+                                }
+                              }}
+                              disabled={isRefining || !imagePath || !detectedTemplate?.templateId}
+                              title="Re-extract the curve only within the selected area"
+                            >
+                              {isRefining ? "Refining..." : "Refine This Area"}
+                            </button>
+                            <button
+                              className="btn btn-secondary btn-small"
+                              onClick={clearRefineArea}
+                              title="Clear the selected refine area"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <label className="curve-toggle">
                       <input
                         type="checkbox"

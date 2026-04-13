@@ -476,17 +476,33 @@
 
 .bounds-info {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 0.25rem;
   font-size: 0.75rem;
   color: #00ccff;
   margin-top: 0.35rem;
 }
 
-.bounds-info .btn-small {
+.bounds-segment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+.bounds-segment-row .btn-small {
+  padding: 0.1rem 0.35rem;
+  font-size: 0.7rem;
+  min-width: unset;
+  line-height: 1;
+}
+
+.bounds-info > .btn-small {
   padding: 0.15rem 0.5rem;
   font-size: 0.7rem;
   min-width: unset;
+  align-self: flex-start;
+  margin-top: 0.2rem;
 }
 
 .bounds-hint {
@@ -494,6 +510,106 @@
   color: #8b8b8b;
   margin-top: 0.35rem;
   font-style: italic;
+}
+
+/* Manual drawing section */
+.drawing-section {
+  margin-bottom: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.drawing-section h3 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #00ff88;
+  margin-bottom: 0.5rem;
+}
+
+.drawing-section .btn-primary {
+  width: 100%;
+  margin-top: 0.4rem;
+  background: linear-gradient(135deg, #00cc6a, #00aa55);
+}
+
+.drawing-section .btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #00dd77, #00bb66);
+}
+
+/* Stroke list */
+.stroke-list {
+  margin: 0.4rem 0;
+}
+
+.stroke-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: #ccc;
+  background: rgba(255, 255, 255, 0.04);
+  margin-bottom: 2px;
+}
+
+.stroke-item.stroke-active {
+  background: rgba(0, 255, 136, 0.12);
+  color: #00ff88;
+}
+
+.stroke-label {
+  flex: 1;
+  font-weight: 500;
+}
+
+.stroke-pts {
+  font-size: 0.72rem;
+  opacity: 0.6;
+}
+
+.stroke-remove-btn {
+  background: none;
+  border: none;
+  color: #ff6666;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0 0.2rem;
+  line-height: 1;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.stroke-remove-btn:hover {
+  opacity: 1;
+}
+
+/* ============================================
+   Refine Area Section
+   ============================================ */
+
+.refine-section {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.refine-info {
+  margin-top: 0.4rem;
+}
+
+.refine-range {
+  display: block;
+  font-size: 0.8rem;
+  color: #ffa500;
+  margin-bottom: 0.2rem;
+}
+
+.refine-hint {
+  font-size: 0.75rem;
+  color: #999;
+  margin: 0 0 0.35rem 0;
+  line-height: 1.3;
 }
 
 /* ============================================

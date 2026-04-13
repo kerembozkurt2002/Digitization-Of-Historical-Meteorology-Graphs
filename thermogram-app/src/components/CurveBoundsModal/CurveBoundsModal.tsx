@@ -1,20 +1,23 @@
 /**
- * CurveBoundsModal — full-screen modal for manual left/right curve-bound selection.
+ * CurveBoundsModal — full-screen modal for selecting curve bound segments.
  *
- * Shows the original image on a canvas, lets the user click two points
- * (left bound, right bound) visualised as cyan vertical dashed lines,
- * then applies them to trigger curve extraction.
+ * Supports defining multiple start/end point pairs for discontinuous curves.
+ * Each pair defines a segment with left (start) and right (end) bounds plus
+ * optional Y hints from the click positions.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useImageStore } from "../../stores/imageStore";
 import { useCurveStore } from "../../stores/curveStore";
+import type { CurveBoundSegment } from "../../types";
 import "./CurveBoundsModal.css";
 
-type Phase = "left" | "right" | "done";
+type Phase = "left" | "right" | "idle";
+
+const SEGMENT_COLORS = ["#00e5ff", "#ff6ec7", "#aaff00", "#ffaa00", "#aa88ff", "#ff5555"];
 
 export function CurveBoundsModal() {
-  const { isBoundsModalOpen, closeBoundsModal, setBounds, xMin, xMax } =
+  const { isBoundsModalOpen, closeBoundsModal, setCurveBounds, curveBounds } =
     useCurveStore();
   const { originalImage, imageWidth, imageHeight } = useImageStore();
 
@@ -23,24 +26,31 @@ export function CurveBoundsModal() {
   const imgRef = useRef<HTMLImageElement | null>(null);
 
   const [zoom, setZoom] = useState(1);
-  const [phase, setPhase] = useState<Phase>("left");
-  const [leftX, setLeftX] = useState<number | null>(null);
-  const [leftY, setLeftY] = useState<number | null>(null);
-  const [rightX, setRightX] = useState<number | null>(null);
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [segments, setSegments] = useState<CurveBoundSegment[]>([]);
+  const [nextId, setNextId] = useState(1);
+
+  // Pending pair being defined
+  const [pendingLeftX, setPendingLeftX] = useState<number | null>(null);
+  const [pendingLeftY, setPendingLeftY] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
 
   // Reset state whenever modal opens
   useEffect(() => {
     if (isBoundsModalOpen) {
-      setPhase(xMin !== null && xMax !== null ? "done" : "left");
-      setLeftX(xMin);
-      setRightX(xMax);
+      const existing = curveBounds.length > 0 ? [...curveBounds] : [];
+      setSegments(existing);
+      const maxId = existing.length > 0 ? Math.max(...existing.map((s) => s.id)) : 0;
+      setNextId(maxId + 1);
+      setPhase("idle");
+      setPendingLeftX(null);
+      setPendingLeftY(null);
       setZoom(1);
       setHoverX(null);
     }
-  }, [isBoundsModalOpen, xMin, xMax]);
+  }, [isBoundsModalOpen, curveBounds]);
 
-  // Load image into an offscreen HTMLImageElement for drawing
+  // Load image
   useEffect(() => {
     if (!originalImage) return;
     const img = new Image();
@@ -51,7 +61,7 @@ export function CurveBoundsModal() {
     img.src = `data:image/png;base64,${originalImage}`;
   }, [originalImage]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fit zoom so the image fits inside the container on first open
+  // Fit zoom
   useEffect(() => {
     if (!isBoundsModalOpen || !containerRef.current || !imageWidth || !imageHeight) return;
     const rect = containerRef.current.getBoundingClientRect();
@@ -74,71 +84,117 @@ export function CurveBoundsModal() {
 
     ctx.drawImage(img, 0, 0, w, h);
 
-    const drawVerticalLine = (natX: number, color: string, lineWidth: number) => {
-      const sx = natX * zoom;
+    // Draw completed segments
+    for (let si = 0; si < segments.length; si++) {
+      const seg = segments[si];
+      const color = SEGMENT_COLORS[si % SEGMENT_COLORS.length];
+      const lx = seg.xMin * zoom;
+      const rx = seg.xMax * zoom;
+
+      // Shaded region
+      ctx.fillStyle = color.replace(")", ", 0.08)").replace("rgb", "rgba").replace("#", "");
+      // Use a simple highlight band
+      ctx.save();
+      ctx.globalAlpha = 0.12;
+      ctx.fillStyle = color;
+      ctx.fillRect(lx, 0, rx - lx, h);
+      ctx.globalAlpha = 1.0;
+      ctx.restore();
+
+      // Bound lines
+      const drawLine = (natX: number) => {
+        const sx = natX * zoom;
+        ctx.save();
+        ctx.setLineDash([8, 6]);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(sx, 0);
+        ctx.lineTo(sx, h);
+        ctx.stroke();
+        ctx.restore();
+      };
+      drawLine(seg.xMin);
+      drawLine(seg.xMax);
+
+      // Crosshairs at Y hints
+      const drawCrosshair = (natX: number, natY: number) => {
+        const cx = natX * zoom;
+        const cy = natY * zoom;
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx - 12, cy);
+        ctx.lineTo(cx + 12, cy);
+        ctx.moveTo(cx, cy - 12);
+        ctx.lineTo(cx, cy + 12);
+        ctx.stroke();
+        ctx.restore();
+      };
+      if (seg.yHint !== undefined) drawCrosshair(seg.xMin, seg.yHint);
+      if (seg.yHintEnd !== undefined) drawCrosshair(seg.xMax, seg.yHintEnd);
+
+      // Label
+      ctx.font = "bold 12px sans-serif";
+      ctx.fillStyle = "rgba(0,0,0,0.7)";
+      const label = `Seg ${si + 1}`;
+      const m = ctx.measureText(label);
+      const labelX = lx + 6;
+      ctx.fillRect(labelX, 8, m.width + 8, 20);
+      ctx.fillStyle = color;
+      ctx.fillText(label, labelX + 4, 23);
+    }
+
+    // Pending left line
+    if (pendingLeftX !== null) {
+      const nextColor = SEGMENT_COLORS[segments.length % SEGMENT_COLORS.length];
+      const sx = pendingLeftX * zoom;
       ctx.save();
       ctx.setLineDash([8, 6]);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = lineWidth;
+      ctx.strokeStyle = nextColor;
+      ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(sx, 0);
       ctx.lineTo(sx, h);
       ctx.stroke();
       ctx.restore();
-    };
-
-    // Shade outside the selected region
-    if (leftX !== null && rightX !== null) {
-      ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
-      const lx = leftX * zoom;
-      const rx = rightX * zoom;
-      ctx.fillRect(0, 0, lx, h);
-      ctx.fillRect(rx, 0, w - rx, h);
+      if (pendingLeftY !== null) {
+        const cy = pendingLeftY * zoom;
+        ctx.save();
+        ctx.strokeStyle = nextColor;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(sx, cy, 8, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(sx - 12, cy);
+        ctx.lineTo(sx + 12, cy);
+        ctx.moveTo(sx, cy - 12);
+        ctx.lineTo(sx, cy + 12);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
-
-    if (leftX !== null) drawVerticalLine(leftX, "#00e5ff", 2);
-    if (rightX !== null) drawVerticalLine(rightX, "#00e5ff", 2);
 
     // Hover preview line
-    if (hoverX !== null && phase !== "done") {
-      drawVerticalLine(hoverX, "rgba(0, 229, 255, 0.5)", 1);
-    }
-
-    // Labels
-    const drawLabel = (natX: number, label: string) => {
-      const sx = natX * zoom;
-      ctx.font = "bold 13px sans-serif";
-      ctx.fillStyle = "rgba(0,0,0,0.65)";
-      const m = ctx.measureText(label);
-      ctx.fillRect(sx + 6, 10, m.width + 8, 20);
-      ctx.fillStyle = "#00e5ff";
-      ctx.fillText(label, sx + 10, 25);
-    };
-
-    if (leftX !== null) drawLabel(leftX, `L: ${Math.round(leftX)}`);
-    if (rightX !== null) drawLabel(rightX, `R: ${Math.round(rightX)}`);
-
-    // Draw a crosshair at the left click position to show Y hint was captured
-    if (leftX !== null && leftY !== null) {
-      const cx = leftX * zoom;
-      const cy = leftY * zoom;
+    if (hoverX !== null && phase !== "idle") {
       ctx.save();
-      ctx.strokeStyle = "#00e5ff";
-      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.arc(cx, cy, 8, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(cx - 12, cy);
-      ctx.lineTo(cx + 12, cy);
-      ctx.moveTo(cx, cy - 12);
-      ctx.lineTo(cx, cy + 12);
+      const sx = hoverX * zoom;
+      ctx.moveTo(sx, 0);
+      ctx.lineTo(sx, h);
       ctx.stroke();
       ctx.restore();
     }
-  }, [imageWidth, imageHeight, zoom, leftX, leftY, rightX, hoverX, phase]);
+  }, [imageWidth, imageHeight, zoom, segments, pendingLeftX, pendingLeftY, hoverX, phase]);
 
-  // Redraw whenever anything relevant changes
   useEffect(() => {
     if (isBoundsModalOpen) drawCanvas();
   }, [drawCanvas, isBoundsModalOpen]);
@@ -163,20 +219,30 @@ export function CurveBoundsModal() {
       const { nx, ny } = canvasToNatural(e.clientX, e.clientY);
 
       if (phase === "left") {
-        setLeftX(nx);
-        setLeftY(ny);
+        setPendingLeftX(nx);
+        setPendingLeftY(ny);
         setPhase("right");
-      } else if (phase === "right") {
-        setRightX(nx);
-        setPhase("done");
+      } else if (phase === "right" && pendingLeftX !== null) {
+        const newSeg: CurveBoundSegment = {
+          id: nextId,
+          xMin: Math.min(pendingLeftX, nx),
+          xMax: Math.max(pendingLeftX, nx),
+          yHint: pendingLeftX < nx ? (pendingLeftY ?? undefined) : ny,
+          yHintEnd: pendingLeftX < nx ? ny : (pendingLeftY ?? undefined),
+        };
+        setSegments((prev) => [...prev, newSeg].sort((a, b) => a.xMin - b.xMin));
+        setNextId((id) => id + 1);
+        setPendingLeftX(null);
+        setPendingLeftY(null);
+        setPhase("idle");
       }
     },
-    [phase, canvasToNatural]
+    [phase, canvasToNatural, pendingLeftX, pendingLeftY, nextId]
   );
 
   const handleCanvasMove = useCallback(
     (e: React.MouseEvent) => {
-      if (phase === "done") {
+      if (phase === "idle") {
         setHoverX(null);
         return;
       }
@@ -186,43 +252,67 @@ export function CurveBoundsModal() {
     [phase, canvasToNatural]
   );
 
-  const handleApply = useCallback(() => {
-    if (leftX !== null && rightX !== null) {
-      setBounds(leftX, rightX, leftY ?? undefined);
-      closeBoundsModal();
-    }
-  }, [leftX, leftY, rightX, setBounds, closeBoundsModal]);
-
-  const handleReset = useCallback(() => {
-    setLeftX(null);
-    setLeftY(null);
-    setRightX(null);
+  const handleStartAdding = useCallback(() => {
     setPhase("left");
-    setHoverX(null);
+    setPendingLeftX(null);
+    setPendingLeftY(null);
   }, []);
+
+  const handleRemoveSegment = useCallback((id: number) => {
+    setSegments((prev) => prev.filter((s) => s.id !== id));
+  }, []);
+
+  const handleClearAll = useCallback(() => {
+    setSegments([]);
+    setPendingLeftX(null);
+    setPendingLeftY(null);
+    setPhase("idle");
+  }, []);
+
+  const handleCancel = useCallback(() => {
+    if (phase !== "idle") {
+      setPendingLeftX(null);
+      setPendingLeftY(null);
+      setPhase("idle");
+    }
+  }, [phase]);
+
+  const handleApply = useCallback(() => {
+    setCurveBounds(segments);
+    closeBoundsModal();
+  }, [segments, setCurveBounds, closeBoundsModal]);
 
   const zoomIn = useCallback(() => setZoom((z) => Math.min(5, z + 0.25)), []);
   const zoomOut = useCallback(() => setZoom((z) => Math.max(0.1, z - 0.25)), []);
   const zoomReset = useCallback(() => setZoom(1), []);
 
-  // Keyboard: Escape to close
   useEffect(() => {
     if (!isBoundsModalOpen) return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeBoundsModal();
+      if (e.key === "Escape") {
+        if (phase !== "idle") {
+          setPendingLeftX(null);
+          setPendingLeftY(null);
+          setPhase("idle");
+        } else {
+          closeBoundsModal();
+        }
+      }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [isBoundsModalOpen, closeBoundsModal]);
+  }, [isBoundsModalOpen, closeBoundsModal, phase]);
 
   if (!isBoundsModalOpen || !originalImage) return null;
 
   const stepText =
     phase === "left"
-      ? "Click to set the LEFT bound"
+      ? "Click to set the START point of a curve segment"
       : phase === "right"
-        ? "Click to set the RIGHT bound"
-        : "Bounds set — click Apply & Extract";
+        ? "Click to set the END point of this segment"
+        : segments.length === 0
+          ? 'Click "Add Segment" to define curve bounds'
+          : `${segments.length} segment(s) defined — add more or Apply`;
 
   return (
     <div className="curve-bounds-overlay">
@@ -235,22 +325,57 @@ export function CurveBoundsModal() {
           </button>
         </div>
 
-        {/* Instructions */}
+        {/* Instructions + segment list */}
         <div className="curve-bounds-instructions">
           <div className="step-info">
             <span className="step-number">
-              {phase === "done" ? "\u2713" : phase === "left" ? "1/2" : "2/2"}
+              {phase === "left" ? "1/2" : phase === "right" ? "2/2" : segments.length > 0 ? "\u2713" : ""}
             </span>
-            <span className={phase === "done" ? "step-complete" : "step-text"}>
+            <span className={segments.length > 0 && phase === "idle" ? "step-complete" : "step-text"}>
               {stepText}
             </span>
           </div>
-          {phase !== "left" && (
-            <button className="btn btn-secondary btn-small" onClick={handleReset}>
-              Reset
-            </button>
-          )}
+          <div className="bounds-toolbar">
+            {phase === "idle" && (
+              <button className="btn btn-secondary btn-small" onClick={handleStartAdding}>
+                + Add Segment
+              </button>
+            )}
+            {phase !== "idle" && (
+              <button className="btn btn-secondary btn-small" onClick={handleCancel}>
+                Cancel
+              </button>
+            )}
+            {segments.length > 0 && phase === "idle" && (
+              <button className="btn btn-secondary btn-small" onClick={handleClearAll}>
+                Clear All
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Segment list */}
+        {segments.length > 0 && (
+          <div className="curve-bounds-segments">
+            {segments.map((seg, si) => (
+              <div key={seg.id} className="segment-chip" style={{ borderColor: SEGMENT_COLORS[si % SEGMENT_COLORS.length] }}>
+                <span className="segment-chip-label" style={{ color: SEGMENT_COLORS[si % SEGMENT_COLORS.length] }}>
+                  Seg {si + 1}
+                </span>
+                <span className="segment-chip-range">
+                  {Math.round(seg.xMin)} — {Math.round(seg.xMax)} px
+                </span>
+                <button
+                  className="segment-chip-remove"
+                  onClick={() => handleRemoveSegment(seg.id)}
+                  title="Remove this segment"
+                >
+                  &times;
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Canvas */}
         <div className="curve-bounds-canvas-container" ref={containerRef}>
@@ -285,7 +410,7 @@ export function CurveBoundsModal() {
             </button>
             <button
               className="btn btn-primary"
-              disabled={phase !== "done"}
+              disabled={segments.length === 0}
               onClick={handleApply}
             >
               Apply &amp; Extract

@@ -282,8 +282,11 @@ def cmd_extract_curve(args):
         x_min = getattr(args, 'x_min', None)
         x_max = getattr(args, 'x_max', None)
         y_hint = getattr(args, 'y_hint', None)
+        y_hint_end = getattr(args, 'y_hint_end', None)
+        y_min = getattr(args, 'y_min', None)
+        y_max = getattr(args, 'y_max', None)
         segmenter = CurveSegmenter()
-        result = segmenter.extract(normalized, calibration, sample_interval, x_min, x_max, y_hint)
+        result = segmenter.extract(normalized, calibration, sample_interval, x_min, x_max, y_hint, y_hint_end, image_path, y_min, y_max)
 
         response = {
             "success": result.success,
@@ -294,6 +297,35 @@ def cmd_extract_curve(args):
 
         print(json.dumps(response))
         return 0 if result.success else 1
+
+    except Exception as e:
+        print(json.dumps({"success": False, "error": str(e)}))
+        return 1
+
+
+def cmd_clean_annotation(args):
+    """Clean a single annotation file and save to cleaned/ subdirectory."""
+    file_path = args.file
+
+    if not os.path.exists(file_path):
+        print(json.dumps({"success": False, "error": f"File not found: {file_path}"}))
+        return 1
+
+    try:
+        from annotation_utils import load_annotation, clean_annotation
+
+        raw = load_annotation(file_path)
+        cleaned = clean_annotation(raw)
+
+        cleaned_dir = Path(file_path).parent / "cleaned"
+        cleaned_dir.mkdir(parents=True, exist_ok=True)
+
+        out_path = cleaned_dir / Path(file_path).name
+        with open(out_path, 'w') as f:
+            json.dump(cleaned, f, indent=2)
+
+        print(json.dumps({"success": True}))
+        return 0
 
     except Exception as e:
         print(json.dumps({"success": False, "error": str(e)}))
@@ -345,7 +377,18 @@ def main():
                                 help='Right X bound in image pixels (optional)')
     extract_parser.add_argument('--y-hint', type=int, default=None,
                                 help='Y coordinate hint for curve start (optional)')
+    extract_parser.add_argument('--y-hint-end', type=int, default=None,
+                                help='Y coordinate hint for curve end (optional)')
+    extract_parser.add_argument('--y-min', type=int, default=None,
+                                help='Top Y bound for ROI in image pixels (optional)')
+    extract_parser.add_argument('--y-max', type=int, default=None,
+                                help='Bottom Y bound for ROI in image pixels (optional)')
     extract_parser.set_defaults(func=cmd_extract_curve)
+
+    # Clean annotation command
+    clean_ann_parser = subparsers.add_parser('clean-annotation', help='Clean a single annotation file')
+    clean_ann_parser.add_argument('--file', '-f', required=True, help='Path to annotation JSON file')
+    clean_ann_parser.set_defaults(func=cmd_clean_annotation)
 
     args = parser.parse_args()
 

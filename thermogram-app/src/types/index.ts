@@ -329,3 +329,28 @@ export interface ExtractCurveResponse {
   message?: string;
 }
 
+export interface SaveAnnotationResponse {
+  success: boolean;
+  error?: string;
+  path?: string;
+}
+
+export interface CurveStroke {
+  id: number;
+  label: string;
+  points: CurvePoint[];
+}
+
+export interface CurveBoundSegment {
+  id: number;
+  xMin: number;
+  xMax: number;
+  yHint?: number;
+  yHintEnd?: number;
+}
+
+export interface CleanAnnotationResponse {
+  success: boolean;
+  error?: string;
+}
+
