@@ -5,13 +5,14 @@
  * 1. Load image
  * 2. Detect template
  * 3. Load calibration (if exists)
- * 4. Open calibration prompt if needed
+ *
+ * User can manually click "Align" or "Calibrate" buttons to open modals.
  */
 
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useImageStore } from "../stores/imageStore";
-import { useCalibrationStore, type SavedCalibrationData } from "../stores/calibrationStore";
+import type { SavedCalibrationData } from "../stores/calibrationStore";
 import { useDataStore } from "../stores/dataStore";
 import { useCurveStore } from "../stores/curveStore";
 import type { PreviewResponse, DetectTemplateResponse, GetCalibrationResponse } from "../types";
@@ -25,7 +26,8 @@ export function useImageLoader() {
     setDetectedTemplate,
     setGridCalibration,
   } = useImageStore();
-  const { openPrompt, openAlignment } = useCalibrationStore();
+  // Removed auto-open: const { openPrompt, openAlignment } = useCalibrationStore();
+  // User can manually click "Align" or "Calibrate" buttons
   const { reset: resetData } = useDataStore();
   const { clear: clearCurve } = useCurveStore();
 
@@ -119,15 +121,14 @@ export function useImageLoader() {
       console.error("Template detection error:", err);
     }
 
-    // Step 3: Load calibration if template was detected
+    // Step 3: Check if calibration exists for template
     let hasCalibration = false;
-    let savedCalibrationData: SavedCalibrationData | null = null;
 
     if (templateId) {
       setProcessingState({
         stage: "preprocessing",
         progress: 60,
-        message: "Loading calibration...",
+        message: "Checking calibration...",
       });
 
       try {
@@ -137,25 +138,9 @@ export function useImageLoader() {
 
         if (calibResult.success && calibResult.exists && calibResult.derived) {
           hasCalibration = true;
-
-          // Store calibration data for alignment mode
-          savedCalibrationData = {
-            referenceHour: calibResult.derived.reference_hour ?? 12,
-            referenceMinute: calibResult.derived.reference_minute ?? 0,
-            referenceTemp: calibResult.derived.reference_temp ?? calibResult.derived.horizontal_top_temp ?? 0,
-            verticalSpacing: calibResult.derived.line_spacing,
-            horizontalSpacing: calibResult.derived.horizontal_spacing ?? 25,
-            curvature: calibResult.derived.curve_coeff_a,
-            centerY: calibResult.derived.curve_center_y,
-            topPoint: calibResult.derived.top_point,
-            bottomPoint: calibResult.derived.bottom_point,
-          };
-
-          // Don't set grid calibration yet - user needs to align first
-          // setGridCalibration will be called after alignment
         }
       } catch (err) {
-        console.error("Calibration loading error:", err);
+        console.error("Calibration check error:", err);
       }
     }
 
@@ -172,19 +157,10 @@ export function useImageLoader() {
           : "Image loaded",
     });
 
-    // Step 4: Open appropriate modal
-    if (templateId && imageWidth > 0 && imageHeight > 0) {
-      if (hasCalibration && savedCalibrationData) {
-        // Calibration exists - open alignment mode
-        openAlignment(templateId, imageWidth, imageHeight, savedCalibrationData);
-      } else {
-        // No calibration - open full calibration prompt
-        openPrompt(templateId, imageWidth, imageHeight);
-      }
-    }
+    // Don't auto-open alignment modal - user can click "Align" button when needed
 
     return { success: true, needsCalibration, templateId };
-  }, [setImagePath, setOriginalImage, setProcessingState, setImageDimensions, setDetectedTemplate, setGridCalibration, resetData, clearCurve, openPrompt, openAlignment]);
+  }, [setImagePath, setOriginalImage, setProcessingState, setImageDimensions, setDetectedTemplate, setGridCalibration, resetData, clearCurve]);
 
   return { loadImageFromPath };
 }
