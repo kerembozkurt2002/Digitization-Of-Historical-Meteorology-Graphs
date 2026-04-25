@@ -286,7 +286,7 @@ def cmd_extract_curve(args):
         y_min = getattr(args, 'y_min', None)
         y_max = getattr(args, 'y_max', None)
         segmenter = CurveSegmenter()
-        result = segmenter.extract(normalized, calibration, sample_interval, x_min, x_max, y_hint, y_hint_end, image_path, y_min, y_max)
+        result = segmenter.extract(normalized, calibration, sample_interval, x_min, x_max, y_hint, y_hint_end, image_path, y_min, y_max, template_id)
 
         response = {
             "success": result.success,
@@ -303,29 +303,65 @@ def cmd_extract_curve(args):
         return 1
 
 
-def cmd_clean_annotation(args):
-    """Clean a single annotation file and save to cleaned/ subdirectory."""
-    file_path = args.file
+def cmd_snap_drawing(args):
+    """Snap manually drawn points to the actual curve."""
+    image_path = args.image
+    template_id = args.template_id
+    points_json = args.points
+    snap_band = getattr(args, 'snap_band', 5)
+    sample_interval = getattr(args, 'sample_interval', 1)
 
-    if not os.path.exists(file_path):
-        print(json.dumps({"success": False, "error": f"File not found: {file_path}"}))
+    if not os.path.exists(image_path):
+        result = {
+            "success": False,
+            "error": f"Image file not found: {image_path}"
+        }
+        print(json.dumps(result))
         return 1
 
     try:
-        from annotation_utils import load_annotation, clean_annotation
+        image = load_image(image_path)
+    except ValueError as e:
+        print(json.dumps({"success": False, "error": str(e)}))
+        return 1
 
-        raw = load_annotation(file_path)
-        cleaned = clean_annotation(raw)
+    try:
+        # Parse drawn points
+        drawn_points = json.loads(points_json)
 
-        cleaned_dir = Path(file_path).parent / "cleaned"
-        cleaned_dir.mkdir(parents=True, exist_ok=True)
+        # Load calibration (optional)
+        calibration = None
+        if template_id:
+            from pipeline.calibration_processor import get_processor
+            processor = get_processor()
+            cal_path = processor._get_calibration_path(template_id)
+            if cal_path.exists():
+                with open(cal_path, 'r') as f:
+                    calibration = json.load(f)
 
-        out_path = cleaned_dir / Path(file_path).name
-        with open(out_path, 'w') as f:
-            json.dump(cleaned, f, indent=2)
+        # Normalize image
+        preprocessor = Preprocessor()
+        normalized = preprocessor._normalize(image)
 
-        print(json.dumps({"success": True}))
-        return 0
+        # Snap drawing to curve
+        from pipeline.segmenter import snap_drawing_to_curve
+        result = snap_drawing_to_curve(
+            normalized,
+            drawn_points,
+            calibration,
+            snap_band,
+            sample_interval,
+        )
+
+        response = {
+            "success": result.success,
+            "points": [{"x": p.x, "y": p.y} for p in result.points],
+            "num_points": result.num_points,
+            "message": result.message,
+        }
+
+        print(json.dumps(response))
+        return 0 if result.success else 1
 
     except Exception as e:
         print(json.dumps({"success": False, "error": str(e)}))
@@ -385,10 +421,16 @@ def main():
                                 help='Bottom Y bound for ROI in image pixels (optional)')
     extract_parser.set_defaults(func=cmd_extract_curve)
 
-    # Clean annotation command
-    clean_ann_parser = subparsers.add_parser('clean-annotation', help='Clean a single annotation file')
-    clean_ann_parser.add_argument('--file', '-f', required=True, help='Path to annotation JSON file')
-    clean_ann_parser.set_defaults(func=cmd_clean_annotation)
+    # Snap drawing to curve command
+    snap_parser = subparsers.add_parser('snap-drawing', help='Snap manual drawing to curve')
+    snap_parser.add_argument('--image', '-i', required=True, help='Path to input image')
+    snap_parser.add_argument('--template-id', '-t', required=True, help='Template ID for calibration')
+    snap_parser.add_argument('--points', '-p', required=True, help='JSON array of drawn points')
+    snap_parser.add_argument('--snap-band', '-b', type=int, default=5,
+                             help='Y band to search around drawn points (default: ±5)')
+    snap_parser.add_argument('--sample-interval', '-s', type=int, default=1,
+                             help='Output point spacing (default: 1)')
+    snap_parser.set_defaults(func=cmd_snap_drawing)
 
     args = parser.parse_args()
 

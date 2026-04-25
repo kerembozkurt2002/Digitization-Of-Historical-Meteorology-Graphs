@@ -329,12 +329,6 @@ export interface ExtractCurveResponse {
   message?: string;
 }
 
-export interface SaveAnnotationResponse {
-  success: boolean;
-  error?: string;
-  path?: string;
-}
-
 export interface CurveStroke {
   id: number;
   label: string;
@@ -349,8 +343,14 @@ export interface CurveBoundSegment {
   yHintEnd?: number;
 }
 
-export interface CleanAnnotationResponse {
-  success: boolean;
-  error?: string;
+// Starting point for curve extraction - each point marks where a curve segment begins and ends
+export interface CurveStartingPoint {
+  id: number;
+  x: number;
+  y: number;
+  // Ending point (second click) - marks where this segment ends
+  endX?: number;
+  endY?: number;
 }
+
 

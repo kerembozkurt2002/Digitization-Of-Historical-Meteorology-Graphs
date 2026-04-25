@@ -9,7 +9,6 @@ import { GridOverlay } from "./components/Workspace/GridOverlay";
 import { CurveOverlay } from "./components/Workspace/CurveOverlay";
 import { TemplateSelector } from "./components/Sidebar/TemplateSelector";
 import { CalibrationModal } from "./components/CalibrationModal";
-import { CurveBoundsModal } from "./components/CurveBoundsModal";
 import { ExportModal } from "./components/ExportModal";
 import { useImageLoader } from "./hooks/useImageLoader";
 import type { ViewMode, GetCalibrationResponse } from "./types";
@@ -43,15 +42,15 @@ function App() {
     canUndo: canUndoCurve,
     canRedo: canRedoCurve,
     deleteSelectedPoints,
-    isBoundsModalOpen,
-    curveBounds,
+    isMarkingStartingPoints,
+    startingPoints,
+    setMarkingStartingPoints,
+    removeStartingPoint,
+    clearStartingPoints,
     xMin: curveXMin,
     xMax: curveXMax,
     yHint: curveYHint,
     yHintEnd: curveYHintEnd,
-    openBoundsModal,
-    clearBounds,
-    removeBoundSegment,
     isDrawing,
     drawingStrokes,
     activeStrokeId,
@@ -59,10 +58,6 @@ function App() {
     startNewStroke,
     removeStroke,
     clearDrawing,
-    saveAnnotation,
-    isSavingAnnotation,
-    recalculateFromDrawing,
-    isRecalculating,
     getTotalDrawingPoints,
     isRefineSelecting,
     refineXMin,
@@ -73,6 +68,7 @@ function App() {
     clearRefineArea,
     refineInArea,
     isRefining,
+    snapDrawingAndMerge,
   } = useCurveStore();
 
   // Handle opening calibration modal
@@ -201,12 +197,12 @@ function App() {
   const imageRef = useRef<HTMLImageElement>(null);
   const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
 
-  // Update dimensions when image loads or resizes (object-fit: contain must match overlay math)
+  // Update dimensions when image loads - use natural dimensions for canvas overlay
   const handleImageLoad = () => {
     if (imageRef.current) {
       setImageDimensions({
-        width: imageRef.current.clientWidth,
-        height: imageRef.current.clientHeight,
+        width: imageRef.current.naturalWidth,
+        height: imageRef.current.naturalHeight,
       });
     }
   };
@@ -214,16 +210,14 @@ function App() {
   useEffect(() => {
     const img = imageRef.current;
     if (!img || !originalImage) return;
-    const ro = new ResizeObserver(() => {
-      if (imageRef.current) {
-        setImageDimensions({
-          width: imageRef.current.clientWidth,
-          height: imageRef.current.clientHeight,
-        });
-      }
-    });
-    ro.observe(img);
-    return () => ro.disconnect();
+    // Set natural dimensions once the image is available
+    // Natural dimensions don't change on resize, only on image load
+    if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+      setImageDimensions({
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+      });
+    }
   }, [originalImage]);
 
   // Ctrl+scroll to zoom workspace (non-passive to allow preventDefault)
@@ -257,46 +251,53 @@ function App() {
     return { xMin: undefined, xMax: undefined, yHint: undefined, yHintEnd: undefined };
   }, [curveXMin, curveXMax, curveYHint, curveYHintEnd, gridCalibration]);
 
-  // Handle extracting the curve with automatic bounds
+  // Handle extracting the curve with starting points
   const handleExtractCurve = useCallback(async () => {
     if (!imagePath || !detectedTemplate?.templateId) return;
-    if (curveBounds.length >= 2) {
-      // Multi-segment: don't pass explicit overrides, let extractCurve loop over curveBounds
-      await extractCurve(imagePath, detectedTemplate.templateId, 5);
+    if (startingPoints.length > 0) {
+      // Use starting points for multi-segment extraction
+      await extractCurve(imagePath, detectedTemplate.templateId, 5, undefined, undefined, undefined, undefined, imageWidth || undefined);
     } else {
       const { xMin, xMax, yHint, yHintEnd } = getCurveBounds();
       await extractCurve(imagePath, detectedTemplate.templateId, 5, xMin, xMax, yHint, yHintEnd);
     }
-  }, [imagePath, detectedTemplate?.templateId, extractCurve, getCurveBounds, curveBounds]);
+  }, [imagePath, detectedTemplate?.templateId, extractCurve, getCurveBounds, startingPoints, imageWidth]);
 
   // Auto-extract curve when switching to curve view if not already extracted
   const handleCurveView = useCallback(() => {
     setViewMode("curve");
     if (curvePoints.length === 0 && !isExtracting && imagePath && detectedTemplate?.templateId) {
-      if (curveBounds.length >= 2) {
-        extractCurve(imagePath, detectedTemplate.templateId, 5);
+      if (startingPoints.length > 0) {
+        extractCurve(imagePath, detectedTemplate.templateId, 5, undefined, undefined, undefined, undefined, imageWidth || undefined);
       } else {
         const { xMin, xMax, yHint, yHintEnd } = getCurveBounds();
         extractCurve(imagePath, detectedTemplate.templateId, 5, xMin, xMax, yHint, yHintEnd);
       }
     }
-  }, [setViewMode, curvePoints.length, isExtracting, imagePath, detectedTemplate?.templateId, extractCurve, getCurveBounds, curveBounds]);
+  }, [setViewMode, curvePoints.length, isExtracting, imagePath, detectedTemplate?.templateId, extractCurve, getCurveBounds, startingPoints, imageWidth]);
 
-  // Auto-extract when bounds modal closes with valid bounds
-  const prevBoundsModalOpen = useRef(false);
+  // Auto-extract when starting points change (add/remove/update)
+  const prevStartingPointsRef = useRef<string>("");
   useEffect(() => {
-    if (prevBoundsModalOpen.current && !isBoundsModalOpen && curveBounds.length > 0) {
-      if (imagePath && detectedTemplate?.templateId) {
-        if (curveBounds.length >= 2) {
-          extractCurve(imagePath, detectedTemplate.templateId, 5);
-        } else {
-          const b = curveBounds[0];
-          extractCurve(imagePath, detectedTemplate.templateId, 5, b.xMin, b.xMax, b.yHint, b.yHintEnd);
-        }
+    // Serialize starting points including endX/endY to detect all changes
+    const currentKey = JSON.stringify(startingPoints.map(sp => ({
+      x: sp.x,
+      y: sp.y,
+      endX: sp.endX,
+      endY: sp.endY
+    })));
+
+    // Only re-extract if starting points actually changed
+    // And we have at least one complete segment (with end point)
+    const hasCompleteSegment = startingPoints.some(sp => sp.endX !== undefined && sp.endY !== undefined);
+
+    if (currentKey !== prevStartingPointsRef.current && hasCompleteSegment) {
+      if (imagePath && detectedTemplate?.templateId && viewMode === "curve") {
+        extractCurve(imagePath, detectedTemplate.templateId, 5, undefined, undefined, undefined, undefined, imageWidth || undefined);
       }
     }
-    prevBoundsModalOpen.current = isBoundsModalOpen;
-  }, [isBoundsModalOpen, curveBounds, imagePath, detectedTemplate?.templateId, extractCurve]);
+    prevStartingPointsRef.current = currentKey;
+  }, [startingPoints, imagePath, detectedTemplate?.templateId, extractCurve, imageWidth, viewMode]);
 
   // Handle opening the export modal
   const handleExport = useCallback(() => {
@@ -307,7 +308,7 @@ function App() {
   // Show grid overlay when calibration exists and viewing grid or curve
   const showGridOverlay = gridCalibration !== null && (viewMode === "original" || viewMode === "curve");
   const hasDrawingContent = drawingStrokes.some((s) => s.points.length > 0);
-  const showCurveOverlay = viewMode === "curve" && (isDrawing || hasDrawingContent || isRefineSelecting || refineXMin !== null || (showCurve && curvePoints.length > 0));
+  const showCurveOverlay = viewMode === "curve" && (isDrawing || hasDrawingContent || isRefineSelecting || refineXMin !== null || (showCurve && curvePoints.length > 0) || isMarkingStartingPoints || startingPoints.length > 0);
 
   // Keyboard shortcuts for switching views (0-2), curve undo/redo, and delete points
   useEffect(() => {
@@ -424,7 +425,7 @@ function App() {
       )}
 
       <CalibrationModal />
-      <CurveBoundsModal />
+      {/* CurveBoundsModal removed - using starting points click mode */}
       <ExportModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
@@ -472,27 +473,32 @@ function App() {
               <div className="panel">
                 <h2>Curve</h2>
 
-                {/* Bounds section */}
+                {/* Starting Points section */}
                 <div className="bounds-section">
                   <button
-                    className="btn btn-secondary"
-                    onClick={openBoundsModal}
+                    className={`btn ${isMarkingStartingPoints ? "btn-active" : "btn-secondary"}`}
+                    onClick={() => setMarkingStartingPoints(!isMarkingStartingPoints)}
                     disabled={!originalImage}
-                    title="Select left/right curve bounds on the image"
+                    title={isMarkingStartingPoints ? "Stop marking starting points" : "Click on image to mark curve starting points"}
                   >
-                    Set Curve Bounds
+                    {isMarkingStartingPoints ? "Done Marking" : "Set Starting Points"}
                   </button>
-                  {curveBounds.length > 0 ? (
+                  {isMarkingStartingPoints && (
+                    <p className="bounds-hint" style={{ color: "#4ade80" }}>
+                      Click on the image to mark where each curve segment starts
+                    </p>
+                  )}
+                  {startingPoints.length > 0 ? (
                     <div className="bounds-info">
-                      {curveBounds.map((seg, si) => (
-                        <div key={seg.id} className="bounds-segment-row">
+                      {startingPoints.map((pt, i) => (
+                        <div key={pt.id} className="bounds-segment-row">
                           <span className="bounds-label">
-                            Seg {si + 1}: {Math.round(seg.xMin)}–{Math.round(seg.xMax)}px
+                            Point {i + 1}: ({Math.round(pt.x)}, {Math.round(pt.y)})
                           </span>
                           <button
                             className="btn btn-secondary btn-small"
-                            onClick={() => removeBoundSegment(seg.id)}
-                            title={`Remove segment ${si + 1}`}
+                            onClick={() => removeStartingPoint(pt.id)}
+                            title={`Remove point ${i + 1}`}
                           >
                             &times;
                           </button>
@@ -500,16 +506,18 @@ function App() {
                       ))}
                       <button
                         className="btn btn-secondary btn-small"
-                        onClick={clearBounds}
-                        title="Clear all bounds"
+                        onClick={clearStartingPoints}
+                        title="Clear all starting points"
                       >
                         Clear All
                       </button>
                     </div>
                   ) : (
-                    <p className="bounds-hint">
-                      No manual bounds — using grid or full image
-                    </p>
+                    !isMarkingStartingPoints && (
+                      <p className="bounds-hint">
+                        No starting points — extracting full curve
+                      </p>
+                    )
                   )}
                 </div>
 
@@ -519,11 +527,24 @@ function App() {
                   <div className="curve-controls">
                     <button
                       className={`btn ${isDrawing ? "btn-active" : "btn-secondary"}`}
-                      onClick={() => setDrawingMode(!isDrawing)}
+                      onClick={async () => {
+                        if (isDrawing) {
+                          // Stop drawing: snap to curve and merge with existing points
+                          if (imagePath && detectedTemplate?.templateId && drawingStrokes.some(s => s.points.length > 0)) {
+                            await snapDrawingAndMerge(imagePath, detectedTemplate.templateId);
+                          } else {
+                            // No drawing or no template, just exit
+                            setDrawingMode(false);
+                          }
+                        } else {
+                          // Start drawing
+                          setDrawingMode(true);
+                        }
+                      }}
                       disabled={!originalImage}
-                      title={isDrawing ? "Exit drawing mode" : "Enter freehand drawing mode"}
+                      title={isDrawing ? "Snap drawing to curve and merge" : "Enter freehand drawing mode"}
                     >
-                      {isDrawing ? "Stop Drawing" : "Draw Curve"}
+                      {isDrawing ? "Apply Drawing" : "Draw Curve"}
                     </button>
                     {isDrawing && drawingStrokes.length > 0 && (
                       <button
@@ -568,41 +589,7 @@ function App() {
                     >
                       Clear All
                     </button>
-                    <button
-                      className="btn btn-primary"
-                      onClick={async () => {
-                        if (!imagePath || !detectedTemplate?.templateId) return;
-                        const result = await saveAnnotation(imagePath, detectedTemplate.templateId);
-                        if (result.success) {
-                          setNotification(`Annotation saved: ${result.path?.split("/").pop()}`);
-                        } else {
-                          setNotification(`Save failed: ${result.error}`);
-                        }
-                      }}
-                      disabled={getTotalDrawingPoints() === 0 || isSavingAnnotation || !imagePath || !detectedTemplate?.templateId}
-                      title="Save drawn curves as JSON annotation"
-                    >
-                      {isSavingAnnotation ? "Saving..." : "Save Annotation"}
-                    </button>
                   </div>
-
-                  <button
-                    className="btn btn-primary"
-                    onClick={async () => {
-                      if (!imagePath || !detectedTemplate?.templateId) return;
-                      const ok = await recalculateFromDrawing(imagePath, detectedTemplate.templateId);
-                      if (ok) {
-                        setNotification("Curve recalculated from drawing");
-                      } else {
-                        const err = useCurveStore.getState().error;
-                        setNotification(`Recalculate failed: ${err || "unknown error"}`);
-                      }
-                    }}
-                    disabled={getTotalDrawingPoints() === 0 || isRecalculating || !imagePath || !detectedTemplate?.templateId}
-                    title="Save drawing, clean it, and re-extract curve using it as a guide"
-                  >
-                    {isRecalculating ? "Recalculating..." : "Recalculate Extraction"}
-                  </button>
                 </div>
 
                 {isExtracting && <p className="curve-info">Extracting...</p>}
@@ -771,6 +758,12 @@ function App() {
                     src={`data:image/png;base64,${originalImage}`}
                     alt={viewMode}
                     className="thermogram-image"
+                    style={{
+                      width: imageDimensions.width || 'auto',
+                      height: imageDimensions.height || 'auto',
+                      maxWidth: 'none',
+                      maxHeight: 'none',
+                    }}
                     onLoad={handleImageLoad}
                   />
                   {showGridOverlay && imageDimensions.width > 0 && (

@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
-use std::fs;
 use std::path::Path;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -117,7 +116,7 @@ fn run_python_command(args: Vec<&str>) -> Result<String, String> {
 
     let output = Command::new("python3")
         .args(&cmd_args)
-        .current_dir(std::path::Path::new(&backend_path).parent().unwrap())
+        .current_dir(Path::new(&backend_path).parent().unwrap())
         .output()
         .map_err(|e| format!("Failed to execute Python: {}", e))?;
 
@@ -274,110 +273,33 @@ fn extract_curve(image_path: String, template_id: String, sample_interval: Optio
         .map_err(|e| format!("Failed to parse response: {}", e))
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SaveAnnotationResponse {
-    pub success: bool,
-    pub error: Option<String>,
-    pub path: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct StrokeData {
-    pub id: i32,
-    pub label: String,
-    pub num_points: usize,
-    pub points: Vec<CurvePointData>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CleanAnnotationResponse {
-    pub success: bool,
-    pub error: Option<String>,
-}
-
 #[tauri::command]
-fn save_curve_annotation(
+fn snap_drawing_to_curve(
     image_path: String,
     template_id: String,
-    points: Vec<CurvePointData>,
-    strokes: Option<Vec<StrokeData>>,
-) -> Result<SaveAnnotationResponse, String> {
-    let annotations_dir = {
-        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-            .unwrap_or_else(|_| ".".to_string());
-        let base = manifest_dir.replace("/src-tauri", "");
-        format!("{}/annotations", base)
-    };
+    drawn_points: Vec<CurvePointData>,
+    snap_band: Option<i32>,
+    sample_interval: Option<i32>,
+) -> Result<ExtractCurveResponse, String> {
+    let snap_band_str = snap_band.unwrap_or(15).to_string();
+    let interval_str = sample_interval.unwrap_or(1).to_string();
 
-    if let Err(e) = fs::create_dir_all(&annotations_dir) {
-        return Ok(SaveAnnotationResponse {
-            success: false,
-            error: Some(format!("Failed to create annotations directory: {}", e)),
-            path: None,
-        });
-    }
+    // Serialize drawn points to JSON
+    let points_json = serde_json::to_string(&drawn_points)
+        .map_err(|e| format!("Failed to serialize points: {}", e))?;
 
-    let stem = Path::new(&image_path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("unknown");
+    let args = vec![
+        "snap-drawing",
+        "--image", &image_path,
+        "--template-id", &template_id,
+        "--points", &points_json,
+        "--snap-band", &snap_band_str,
+        "--sample-interval", &interval_str,
+    ];
 
-    let annotation_path = format!("{}/{}.json", annotations_dir, stem);
-
-    let now = chrono::Local::now().to_rfc3339();
-
-    let mut annotation = serde_json::json!({
-        "image_path": image_path,
-        "template_id": template_id,
-        "annotated_at": now,
-        "num_points": points.len(),
-        "points": points,
-    });
-
-    if let Some(ref s) = strokes {
-        annotation["strokes"] = serde_json::to_value(s).unwrap_or_default();
-    }
-
-    match fs::write(&annotation_path, serde_json::to_string_pretty(&annotation).unwrap()) {
-        Ok(_) => Ok(SaveAnnotationResponse {
-            success: true,
-            error: None,
-            path: Some(annotation_path),
-        }),
-        Err(e) => Ok(SaveAnnotationResponse {
-            success: false,
-            error: Some(format!("Failed to write annotation file: {}", e)),
-            path: None,
-        }),
-    }
-}
-
-#[tauri::command]
-fn clean_annotation(file_path: String) -> Result<CleanAnnotationResponse, String> {
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .unwrap_or_else(|_| ".".to_string());
-    let base = manifest_dir.replace("/src-tauri", "");
-    let utils_path = format!("{}/backend/annotation_utils.py", base);
-    let backend_dir = format!("{}/backend", base);
-
-    let output = Command::new("python3")
-        .args(&[&utils_path, "clean", "--file", &file_path])
-        .current_dir(&backend_dir)
-        .output()
-        .map_err(|e| format!("Failed to execute Python: {}", e))?;
-
-    if output.status.success() {
-        Ok(CleanAnnotationResponse {
-            success: true,
-            error: None,
-        })
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Ok(CleanAnnotationResponse {
-            success: false,
-            error: Some(format!("Cleaning failed: {}", stderr)),
-        })
-    }
+    let output = run_python_command(args)?;
+    serde_json::from_str(&output)
+        .map_err(|e| format!("Failed to parse response: {}", e))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -392,8 +314,7 @@ pub fn run() {
             get_calibration,
             save_calibration_simple,
             extract_curve,
-            save_curve_annotation,
-            clean_annotation
+            snap_drawing_to_curve
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

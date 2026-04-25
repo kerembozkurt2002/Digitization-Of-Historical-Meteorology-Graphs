@@ -54,6 +54,10 @@ const REFINE_AREA_COLOR = "rgba(255, 165, 0, 0.15)";
 const REFINE_AREA_BORDER = "rgba(255, 165, 0, 0.8)";
 const REFINE_PENDING_COLOR = "rgba(255, 165, 0, 0.08)";
 const REFINE_PENDING_BORDER = "rgba(255, 165, 0, 0.5)";
+const STARTING_POINT_COLOR = "#00e5ff";
+const STARTING_POINT_BORDER = "#ffffff";
+const ENDING_POINT_COLOR = "#ff6b35";
+const ENDING_POINT_BORDER = "#ffffff";
 
 export function CurveOverlay({ width, height }: CurveOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -80,6 +84,11 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
     refineYMin,
     refineYMax,
     setRefineArea,
+    // Starting points for curve extraction
+    isMarkingStartingPoints,
+    startingPoints,
+    addStartingPoint,
+    awaitingEndPoint,
   } = useCurveStore();
 
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
@@ -186,6 +195,133 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
       ctx.setLineDash([4, 3]);
       ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
       ctx.setLineDash([]);
+    }
+
+    // --- Starting points for curve extraction ---
+    if (startingPoints.length > 0 || isMarkingStartingPoints) {
+      for (let i = 0; i < startingPoints.length; i++) {
+        const sp = startingPoints[i];
+        const { sx, sy } = toScreen(sp.x, sp.y);
+        const hasEndPoint = sp.endX !== undefined && sp.endY !== undefined;
+
+        // Draw starting point crosshair lines
+        ctx.strokeStyle = STARTING_POINT_COLOR;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        // Vertical line
+        ctx.beginPath();
+        ctx.moveTo(sx, 0);
+        ctx.lineTo(sx, height);
+        ctx.stroke();
+        // Horizontal line (short)
+        ctx.beginPath();
+        ctx.moveTo(sx - 20, sy);
+        ctx.lineTo(sx + 20, sy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Draw starting point circle
+        ctx.beginPath();
+        ctx.arc(sx, sy, 8, 0, Math.PI * 2);
+        ctx.fillStyle = STARTING_POINT_COLOR;
+        ctx.fill();
+        ctx.strokeStyle = STARTING_POINT_BORDER;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Draw number label on starting point
+        ctx.font = "bold 10px sans-serif";
+        ctx.fillStyle = "#000000";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(i + 1), sx, sy);
+        ctx.textAlign = "start";
+        ctx.textBaseline = "alphabetic";
+
+        // Draw "S" label for start
+        ctx.font = "bold 9px sans-serif";
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        ctx.fillRect(sx + 10, sy - 18, 14, 14);
+        ctx.fillStyle = STARTING_POINT_COLOR;
+        ctx.fillText("S", sx + 14, sy - 7);
+
+        // Draw ending point if exists
+        if (hasEndPoint) {
+          const { sx: ex, sy: ey } = toScreen(sp.endX!, sp.endY!);
+
+          // Draw line connecting start to end
+          ctx.strokeStyle = "rgba(255, 107, 53, 0.5)";
+          ctx.lineWidth = 2;
+          ctx.setLineDash([5, 5]);
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(ex, ey);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Draw ending point crosshair
+          ctx.strokeStyle = ENDING_POINT_COLOR;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.moveTo(ex, 0);
+          ctx.lineTo(ex, height);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(ex - 20, ey);
+          ctx.lineTo(ex + 20, ey);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Draw ending point circle
+          ctx.beginPath();
+          ctx.arc(ex, ey, 8, 0, Math.PI * 2);
+          ctx.fillStyle = ENDING_POINT_COLOR;
+          ctx.fill();
+          ctx.strokeStyle = ENDING_POINT_BORDER;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          // Draw number label on ending point
+          ctx.font = "bold 10px sans-serif";
+          ctx.fillStyle = "#ffffff";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(String(i + 1), ex, ey);
+          ctx.textAlign = "start";
+          ctx.textBaseline = "alphabetic";
+
+          // Draw "E" label for end
+          ctx.font = "bold 9px sans-serif";
+          ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+          ctx.fillRect(ex + 10, ey - 18, 14, 14);
+          ctx.fillStyle = ENDING_POINT_COLOR;
+          ctx.fillText("E", ex + 14, ey - 7);
+        }
+      }
+
+      // Hint text when in marking mode
+      if (isMarkingStartingPoints) {
+        ctx.font = "bold 14px sans-serif";
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        let label: string;
+        let hintColor: string;
+        if (awaitingEndPoint) {
+          label = "Click to mark ENDING point";
+          hintColor = ENDING_POINT_COLOR;
+        } else {
+          label = "Click to mark STARTING point";
+          hintColor = STARTING_POINT_COLOR;
+        }
+        const metrics = ctx.measureText(label);
+        const tw = metrics.width + 16;
+        const th = 26;
+        const tx = (width - tw) / 2;
+        const ty = 12;
+        ctx.fillRect(tx, ty, tw, th);
+        ctx.fillStyle = hintColor;
+        ctx.fillText(label, tx + 8, ty + 18);
+      }
     }
 
     // --- Drawing strokes (always rendered when they exist) ---
@@ -372,6 +508,7 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
     hoveredIndex, toScreen, selectionBox, isMultiDragging, xMin, xMax,
     drawingStrokes, activeStrokeId, isDrawing, hasDrawingContent, hasExtractedCurve,
     refineXMin, refineXMax, refineYMin, refineYMax, refineDragStart, refineDragEnd,
+    startingPoints, isMarkingStartingPoints, awaitingEndPoint,
   ]);
 
   const findNearestPoint = useCallback(
@@ -433,6 +570,14 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
       if (e.button !== 0) return;
       const { sx, sy } = getCanvasPos(e);
 
+      // Starting point marking mode
+      if (isMarkingStartingPoints) {
+        e.stopPropagation();
+        const { nx, ny } = toImage(sx, sy);
+        addStartingPoint(nx, ny);
+        return;
+      }
+
       if (isRefineSelecting) {
         e.stopPropagation();
         setRefineDragStart({ sx, sy });
@@ -488,7 +633,7 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
     },
     [getCanvasPos, findNearestPoint, setDragPointIndex, setSelectedPointIndex,
      setSelectedPointIndices, selectedPointIndices, toImage, points, isDrawing, addDrawingPoint,
-     isRefineSelecting]
+     isRefineSelecting, isMarkingStartingPoints, addStartingPoint]
   );
 
   const handleMouseMove = useCallback(
@@ -620,12 +765,13 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
     }
   }, [dragPointIndex, setDragPointIndex, selectionBox, isMultiDragging, isFreehandActive, refineDragStart]);
 
-  const hasContent = isDrawing || hasDrawingContent || hasExtractedCurve || isRefineSelecting || refineXMin !== null;
+  const hasContent = isDrawing || hasDrawingContent || hasExtractedCurve || isRefineSelecting || refineXMin !== null || isMarkingStartingPoints || startingPoints.length > 0;
   if (!hasContent || imageWidth === 0 || imageHeight === 0) {
     return null;
   }
 
   const getCursor = () => {
+    if (isMarkingStartingPoints) return "crosshair";
     if (isRefineSelecting || refineDragStart) return "crosshair";
     if (isDrawing) return "crosshair";
     if (selectionBox) return "crosshair";

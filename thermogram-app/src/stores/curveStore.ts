@@ -8,9 +8,8 @@ import type {
   CurvePoint,
   CurveStroke,
   CurveBoundSegment,
+  CurveStartingPoint,
   ExtractCurveResponse,
-  SaveAnnotationResponse,
-  CleanAnnotationResponse,
 } from "../types";
 
 interface CurveEdit {
@@ -31,11 +30,15 @@ interface CurveState {
   editHistory: CurveEdit[];
   historyIndex: number;
 
-  isBoundsModalOpen: boolean;
-  curveBounds: CurveBoundSegment[];
-  nextBoundId: number;
+  // Starting points for curve extraction (replaces bounds modal)
+  isMarkingStartingPoints: boolean;
+  startingPoints: CurveStartingPoint[];
+  nextStartingPointId: number;
+  // Track if we're waiting for end point (second click)
+  awaitingEndPoint: boolean;
 
-  // Legacy single-bound compat (derived from curveBounds[0])
+  // Legacy bounds compat (kept for backward compatibility)
+  curveBounds: CurveBoundSegment[];
   xMin: number | null;
   xMax: number | null;
   yHint: number | null;
@@ -49,16 +52,14 @@ interface CurveState {
   refineYMax: number | null;
   isRefining: boolean;
 
-  // Multi-stroke drawing state
+  // Multi-stroke drawing state (visual aid only, no annotation saving)
   isDrawing: boolean;
   drawingStrokes: CurveStroke[];
   activeStrokeId: number | null;
   nextStrokeId: number;
-  isSavingAnnotation: boolean;
-  isRecalculating: boolean;
 
   // Actions
-  extractCurve: (imagePath: string, templateId: string, sampleInterval?: number, xMin?: number, xMax?: number, yHint?: number, yHintEnd?: number) => Promise<boolean>;
+  extractCurve: (imagePath: string, templateId: string, sampleInterval?: number, xMin?: number, xMax?: number, yHint?: number, yHintEnd?: number, imageWidth?: number) => Promise<boolean>;
   setPoints: (points: CurvePoint[]) => void;
   updatePoint: (index: number, x: number, y: number) => void;
   updateMultiplePointsY: (indices: number[], deltaY: number) => void;
@@ -76,12 +77,13 @@ interface CurveState {
   clear: () => void;
   deleteSelectedPoints: () => void;
 
-  openBoundsModal: () => void;
-  closeBoundsModal: () => void;
-  setBounds: (xMin: number, xMax: number, yHint?: number, yHintEnd?: number) => void;
-  setCurveBounds: (bounds: CurveBoundSegment[]) => void;
-  addBoundSegment: (xMin: number, xMax: number, yHint?: number, yHintEnd?: number) => void;
-  removeBoundSegment: (id: number) => void;
+  // Starting points actions
+  setMarkingStartingPoints: (on: boolean) => void;
+  addStartingPoint: (x: number, y: number) => void;
+  removeStartingPoint: (id: number) => void;
+  clearStartingPoints: () => void;
+
+  // Legacy bounds compat
   clearBounds: () => void;
 
   // Refine area actions
@@ -90,28 +92,20 @@ interface CurveState {
   clearRefineArea: () => void;
   refineInArea: (imagePath: string, templateId: string) => Promise<boolean>;
 
-  // Drawing actions
+  // Drawing actions (visual aid only)
   setDrawingMode: (on: boolean) => void;
   addDrawingPoint: (p: CurvePoint) => void;
   finishStroke: () => void;
   startNewStroke: () => void;
   removeStroke: (id: number) => void;
   clearDrawing: () => void;
-  saveAnnotation: (imagePath: string, templateId: string) => Promise<SaveAnnotationResponse>;
-  recalculateFromDrawing: (imagePath: string, templateId: string) => Promise<boolean>;
+
+  // Snap drawing to curve and merge with existing points
+  snapDrawingAndMerge: (imagePath: string, templateId: string) => Promise<boolean>;
 
   // Compat helpers
   getAllDrawingPoints: () => CurvePoint[];
   getTotalDrawingPoints: () => number;
-}
-
-function boundsToLegacy(bounds: CurveBoundSegment[]): { xMin: number | null; xMax: number | null; yHint: number | null; yHintEnd: number | null } {
-  if (bounds.length === 0) return { xMin: null, xMax: null, yHint: null, yHintEnd: null };
-  const xMin = Math.min(...bounds.map((b) => b.xMin));
-  const xMax = Math.max(...bounds.map((b) => b.xMax));
-  const yHint = bounds[0].yHint ?? null;
-  const yHintEnd = bounds[bounds.length - 1].yHintEnd ?? null;
-  return { xMin, xMax, yHint, yHintEnd };
 }
 
 function pushHistory(state: CurveState, newPoints: CurvePoint[]): Partial<CurveState> {
@@ -135,9 +129,11 @@ export const useCurveStore = create<CurveState>((set, get) => ({
   dragPointIndex: null,
   editHistory: [],
   historyIndex: -1,
-  isBoundsModalOpen: false,
+  isMarkingStartingPoints: false,
+  startingPoints: [],
+  nextStartingPointId: 1,
+  awaitingEndPoint: false,
   curveBounds: [],
-  nextBoundId: 1,
   xMin: null,
   xMax: null,
   yHint: null,
@@ -153,31 +149,39 @@ export const useCurveStore = create<CurveState>((set, get) => ({
   drawingStrokes: [],
   activeStrokeId: null,
   nextStrokeId: 1,
-  isSavingAnnotation: false,
-  isRecalculating: false,
 
-  extractCurve: async (imagePath, templateId, sampleInterval = 5, xMin?: number, xMax?: number, yHint?: number, yHintEnd?: number) => {
+  extractCurve: async (imagePath, templateId, sampleInterval = 5, xMin?: number, xMax?: number, yHint?: number, yHintEnd?: number, _imageWidth?: number) => {
     set({ isExtracting: true, error: null });
 
     try {
-      const { curveBounds } = get();
+      const { startingPoints } = get();
 
-      // Multi-segment: if we have 2+ bound segments AND the caller didn't
-      // pass explicit overrides, run one extraction per segment.
-      const useMultiBounds = curveBounds.length >= 2 && xMin === undefined && xMax === undefined;
+      // If we have ANY starting points, ONLY extract within defined segments
+      // (curve cannot exist outside of marked segments)
+      if (startingPoints.length > 0 && xMin === undefined && xMax === undefined) {
+        // Only process complete segments (those with both start and end points)
+        const completeSegments = startingPoints.filter(sp => sp.endX !== undefined && sp.endY !== undefined);
 
-      if (useMultiBounds) {
+        if (completeSegments.length === 0) {
+          // User has started marking but no complete segments yet
+          set({ isExtracting: false, error: "Complete at least one segment (mark both start and end points)" });
+          return false;
+        }
+
         const allPts: CurvePoint[] = [];
-        for (const seg of curveBounds) {
+
+        for (let i = 0; i < completeSegments.length; i++) {
+          const sp = completeSegments[i];
+
           const params: Record<string, unknown> = {
             imagePath,
             templateId,
             sampleInterval,
-            xMin: Math.round(seg.xMin),
-            xMax: Math.round(seg.xMax),
+            xMin: Math.round(sp.x),
+            xMax: Math.round(sp.endX!),
+            yHint: Math.round(sp.y),
+            yHintEnd: Math.round(sp.endY!),
           };
-          if (seg.yHint !== undefined) params.yHint = Math.round(seg.yHint);
-          if (seg.yHintEnd !== undefined) params.yHintEnd = Math.round(seg.yHintEnd);
 
           const result = await invoke<ExtractCurveResponse>("extract_curve", params);
           if (result.success && result.points) {
@@ -186,6 +190,8 @@ export const useCurveStore = create<CurveState>((set, get) => ({
         }
 
         if (allPts.length >= 2) {
+          // Sort all points by X
+          allPts.sort((a, b) => a.x - b.x);
           set({
             rawPoints: allPts,
             points: [...allPts],
@@ -202,7 +208,9 @@ export const useCurveStore = create<CurveState>((set, get) => ({
         }
       }
 
-      // Single extraction (one or zero bound segments, or explicit overrides)
+      // NO starting points - extract full image (from first grid line to end)
+
+      // Single extraction (no starting points, or explicit overrides)
       const params: Record<string, unknown> = {
         imagePath,
         templateId,
@@ -335,9 +343,11 @@ export const useCurveStore = create<CurveState>((set, get) => ({
       dragPointIndex: null,
       editHistory: [],
       historyIndex: -1,
-      isBoundsModalOpen: false,
+      isMarkingStartingPoints: false,
+      startingPoints: [],
+      nextStartingPointId: 1,
+      awaitingEndPoint: false,
       curveBounds: [],
-      nextBoundId: 1,
       xMin: null,
       xMax: null,
       yHint: null,
@@ -352,48 +362,53 @@ export const useCurveStore = create<CurveState>((set, get) => ({
       drawingStrokes: [],
       activeStrokeId: null,
       nextStrokeId: 1,
-      isSavingAnnotation: false,
-      isRecalculating: false,
     }),
 
-  openBoundsModal: () => set({ isBoundsModalOpen: true }),
-  closeBoundsModal: () => set({ isBoundsModalOpen: false }),
+  // Starting points actions
+  setMarkingStartingPoints: (on) => set({ isMarkingStartingPoints: on, awaitingEndPoint: false }),
 
-  setBounds: (xMin, xMax, yHint?, yHintEnd?) => {
-    const seg: CurveBoundSegment = {
-      id: 1,
-      xMin: Math.min(xMin, xMax),
-      xMax: Math.max(xMin, xMax),
-      yHint: yHint,
-      yHintEnd: yHintEnd,
-    };
-    set({ curveBounds: [seg], nextBoundId: 2, ...boundsToLegacy([seg]) });
-  },
-
-  setCurveBounds: (bounds) => {
-    const maxId = bounds.length > 0 ? Math.max(...bounds.map((b) => b.id)) : 0;
-    set({ curveBounds: bounds, nextBoundId: maxId + 1, ...boundsToLegacy(bounds) });
-  },
-
-  addBoundSegment: (xMin, xMax, yHint?, yHintEnd?) => {
+  addStartingPoint: (x, y) => {
     const state = get();
-    const seg: CurveBoundSegment = {
-      id: state.nextBoundId,
-      xMin: Math.min(xMin, xMax),
-      xMax: Math.max(xMin, xMax),
-      yHint,
-      yHintEnd,
-    };
-    const newBounds = [...state.curveBounds, seg].sort((a, b) => a.xMin - b.xMin);
-    set({ curveBounds: newBounds, nextBoundId: state.nextBoundId + 1, ...boundsToLegacy(newBounds) });
+
+    if (state.awaitingEndPoint && state.startingPoints.length > 0) {
+      // Second click: add ending point to the last starting point
+      const lastIdx = state.startingPoints.length - 1;
+      const updatedPoints = [...state.startingPoints];
+      updatedPoints[lastIdx] = {
+        ...updatedPoints[lastIdx],
+        endX: x,
+        endY: y,
+      };
+      // Sort by starting X
+      updatedPoints.sort((a, b) => a.x - b.x);
+      set({
+        startingPoints: updatedPoints,
+        awaitingEndPoint: false,
+      });
+    } else {
+      // First click: add new starting point
+      const newPoint: CurveStartingPoint = {
+        id: state.nextStartingPointId,
+        x,
+        y,
+      };
+      const newPoints = [...state.startingPoints, newPoint].sort((a, b) => a.x - b.x);
+      set({
+        startingPoints: newPoints,
+        nextStartingPointId: state.nextStartingPointId + 1,
+        awaitingEndPoint: true, // Now waiting for ending point
+      });
+    }
   },
 
-  removeBoundSegment: (id) => {
-    const newBounds = get().curveBounds.filter((b) => b.id !== id);
-    set({ curveBounds: newBounds, ...boundsToLegacy(newBounds) });
+  removeStartingPoint: (id) => {
+    const newPoints = get().startingPoints.filter((p) => p.id !== id);
+    set({ startingPoints: newPoints });
   },
 
-  clearBounds: () => set({ curveBounds: [], nextBoundId: 1, xMin: null, xMax: null, yHint: null, yHintEnd: null }),
+  clearStartingPoints: () => set({ startingPoints: [], nextStartingPointId: 1, awaitingEndPoint: false }),
+
+  clearBounds: () => set({ curveBounds: [], xMin: null, xMax: null, yHint: null, yHintEnd: null, startingPoints: [], nextStartingPointId: 1, awaitingEndPoint: false }),
 
   setRefineSelecting: (on) => set({ isRefineSelecting: on, refineXMin: null, refineXMax: null, refineYMin: null, refineYMax: null }),
 
@@ -420,14 +435,8 @@ export const useCurveStore = create<CurveState>((set, get) => ({
     set({ isRefining: true, error: null });
 
     try {
-      // Check if user drew strokes within the refine range
-      const strokesInRange = state.drawingStrokes.filter((s) =>
-        s.points.some((p) => p.x >= rXMin && p.x <= rXMax)
-      );
-      const hasDrawing = strokesInRange.length > 0 &&
-        strokesInRange.some((s) => s.points.filter((p) => p.x >= rXMin && p.x <= rXMax).length >= 2);
-
-      const baseParams: Record<string, unknown> = {
+      // Use rectangle Y bounds as yHint/yHintEnd for search constraint
+      const params: Record<string, unknown> = {
         imagePath,
         templateId,
         sampleInterval: 5,
@@ -435,73 +444,11 @@ export const useCurveStore = create<CurveState>((set, get) => ({
         xMax: Math.round(rXMax),
         yMin: Math.round(rYMin),
         yMax: Math.round(rYMax),
+        yHint: Math.round(rYMin),
+        yHintEnd: Math.round(rYMax),
       };
 
-      if (hasDrawing) {
-        // Draw + Refine path: save drawing as annotation, clean it, then extract
-        const allPoints = state.drawingStrokes.flatMap((s) => s.points);
-        const strokeData = state.drawingStrokes
-          .filter((s) => s.points.length > 0)
-          .map((s) => ({
-            id: s.id,
-            label: s.label,
-            num_points: s.points.length,
-            points: s.points,
-          }));
-
-        const saveResult = await invoke<SaveAnnotationResponse>("save_curve_annotation", {
-          imagePath,
-          templateId,
-          points: allPoints,
-          strokes: strokeData,
-        });
-
-        if (!saveResult.success || !saveResult.path) {
-          set({ isRefining: false, error: saveResult.error || "Failed to save annotation" });
-          return false;
-        }
-
-        const cleanResult = await invoke<CleanAnnotationResponse>("clean_annotation", {
-          filePath: saveResult.path,
-        });
-
-        if (!cleanResult.success) {
-          set({ isRefining: false, error: cleanResult.error || "Failed to clean annotation" });
-          return false;
-        }
-
-        const result = await invoke<ExtractCurveResponse>("extract_curve", baseParams);
-
-        if (result.success && result.points && result.points.length > 0) {
-          const kept = state.points.filter((p) => p.x < rXMin || p.x > rXMax);
-          const merged = [...kept, ...result.points].sort((a, b) => a.x - b.x);
-
-          set({
-            ...pushHistory(state, merged),
-            rawPoints: merged,
-            isRefining: false,
-            refineXMin: null,
-            refineXMax: null,
-            refineYMin: null,
-            refineYMax: null,
-            drawingStrokes: [],
-            activeStrokeId: null,
-            nextStrokeId: 1,
-            isDrawing: false,
-            showCurve: true,
-          });
-          return true;
-        } else {
-          set({ isRefining: false, error: result.error || result.message || "No curve detected in area" });
-          return false;
-        }
-      }
-
-      // No drawing: use rectangle Y bounds as yHint/yHintEnd for gravity
-      baseParams.yHint = Math.round(rYMin);
-      baseParams.yHintEnd = Math.round(rYMax);
-
-      const result = await invoke<ExtractCurveResponse>("extract_curve", baseParams);
+      const result = await invoke<ExtractCurveResponse>("extract_curve", params);
 
       if (result.success && result.points && result.points.length > 0) {
         const kept = state.points.filter((p) => p.x < rXMin || p.x > rXMax);
@@ -533,7 +480,8 @@ export const useCurveStore = create<CurveState>((set, get) => ({
       const strokeCount = get().drawingStrokes.length;
       set({
         isDrawing: true,
-        showCurve: false,
+        // Keep showCurve true so existing curve remains visible during drawing
+        showCurve: true,
         activeStrokeId: id,
         nextStrokeId: id + 1,
         drawingStrokes: [
@@ -542,7 +490,7 @@ export const useCurveStore = create<CurveState>((set, get) => ({
         ],
       });
     } else {
-      set({ isDrawing: false, showCurve: true, activeStrokeId: null });
+      set({ isDrawing: false, activeStrokeId: null });
     }
   },
 
@@ -589,111 +537,79 @@ export const useCurveStore = create<CurveState>((set, get) => ({
       activeStrokeId: null,
       nextStrokeId: 1,
       isDrawing: false,
-      showCurve: true,
     }),
 
-  saveAnnotation: async (imagePath, templateId) => {
-    set({ isSavingAnnotation: true });
-    try {
-      const strokes = get().drawingStrokes.filter((s) => s.points.length > 0);
-      const allPoints = strokes.flatMap((s) => s.points);
-      const strokeData = strokes.map((s) => ({
-        id: s.id,
-        label: s.label,
-        num_points: s.points.length,
-        points: s.points,
-      }));
-
-      const result = await invoke<SaveAnnotationResponse>("save_curve_annotation", {
-        imagePath,
-        templateId,
-        points: allPoints,
-        strokes: strokeData,
-      });
-      set({ isSavingAnnotation: false });
-      return result;
-    } catch (err) {
-      set({ isSavingAnnotation: false });
-      return { success: false, error: String(err) };
-    }
-  },
-
-  recalculateFromDrawing: async (imagePath, templateId) => {
+  snapDrawingAndMerge: async (imagePath, templateId) => {
     const state = get();
-    const strokes = state.drawingStrokes.filter((s) => s.points.length > 0);
-    if (strokes.length === 0) return false;
+    const allDrawnPoints = state.drawingStrokes.flatMap((s) => s.points);
 
-    set({ isRecalculating: true, error: null });
-
-    try {
-      const allPoints = strokes.flatMap((s) => s.points);
-      const strokeData = strokes.map((s) => ({
-        id: s.id,
-        label: s.label,
-        num_points: s.points.length,
-        points: s.points,
-      }));
-
-      const saveResult = await invoke<SaveAnnotationResponse>("save_curve_annotation", {
-        imagePath,
-        templateId,
-        points: allPoints,
-        strokes: strokeData,
-      });
-
-      if (!saveResult.success || !saveResult.path) {
-        set({ isRecalculating: false, error: saveResult.error || "Failed to save annotation" });
-        return false;
-      }
-
-      const cleanResult = await invoke<CleanAnnotationResponse>("clean_annotation", {
-        filePath: saveResult.path,
-      });
-
-      if (!cleanResult.success) {
-        set({ isRecalculating: false, error: cleanResult.error || "Failed to clean annotation" });
-        return false;
-      }
-
-      // Auto-derive X bounds from drawn strokes when no manual bounds set
-      let derivedXMin = state.xMin ?? undefined;
-      let derivedXMax = state.xMax ?? undefined;
-      if (derivedXMin === undefined || derivedXMax === undefined) {
-        const allXs = strokes.flatMap((s) => s.points.map((p) => p.x));
-        if (allXs.length > 0) {
-          derivedXMin = derivedXMin ?? Math.min(...allXs);
-          derivedXMax = derivedXMax ?? Math.max(...allXs);
-        }
-      }
-
-      const bounds = {
-        xMin: derivedXMin,
-        xMax: derivedXMax,
-        yHint: state.yHint ?? undefined,
-        yHintEnd: state.yHintEnd ?? undefined,
-      };
-
-      const ok = await get().extractCurve(
-        imagePath,
-        templateId,
-        5,
-        bounds.xMin,
-        bounds.xMax,
-        bounds.yHint,
-        bounds.yHintEnd,
-      );
-
-      // Clear drawing after recalculate so user sees only the refined curve
+    if (allDrawnPoints.length < 2) {
+      // Not enough drawn points, just clear drawing
       set({
-        isRecalculating: false,
-        isDrawing: false,
         drawingStrokes: [],
         activeStrokeId: null,
         nextStrokeId: 1,
+        isDrawing: false,
       });
-      return ok;
+      return false;
+    }
+
+    try {
+      // Call backend to process drawn points
+      const result = await invoke<ExtractCurveResponse>("snap_drawing_to_curve", {
+        imagePath,
+        templateId,
+        drawnPoints: allDrawnPoints,
+        snapBand: 5,
+        sampleInterval: 5,
+      });
+
+      if (result.success && result.points && result.points.length > 0) {
+        const drawnPoints = result.points;
+
+        // Get X range of drawn points
+        const drawnXMin = Math.min(...drawnPoints.map((p) => p.x));
+        const drawnXMax = Math.max(...drawnPoints.map((p) => p.x));
+
+        // Keep existing points outside the drawn range, replace inside
+        const leftPoints = state.points.filter((p) => p.x < drawnXMin);
+        const rightPoints = state.points.filter((p) => p.x > drawnXMax);
+
+        // Merge: existing left + drawn + existing right (no blending, direct replacement)
+        const mergedPoints = [...leftPoints, ...drawnPoints, ...rightPoints].sort(
+          (a, b) => a.x - b.x
+        );
+
+        // Clear drawing and update curve
+        set({
+          ...pushHistory(state, mergedPoints),
+          rawPoints: mergedPoints,
+          drawingStrokes: [],
+          activeStrokeId: null,
+          nextStrokeId: 1,
+          isDrawing: false,
+        });
+
+        return true;
+      } else {
+        // Failed - clear drawing without modifying curve
+        set({
+          drawingStrokes: [],
+          activeStrokeId: null,
+          nextStrokeId: 1,
+          isDrawing: false,
+          error: result.error || result.message || "Failed to process drawing",
+        });
+        return false;
+      }
     } catch (err) {
-      set({ isRecalculating: false, error: String(err) });
+      set({
+        drawingStrokes: [],
+        activeStrokeId: null,
+        nextStrokeId: 1,
+        isDrawing: false,
+        error: String(err),
+      });
       return false;
     }
   },
