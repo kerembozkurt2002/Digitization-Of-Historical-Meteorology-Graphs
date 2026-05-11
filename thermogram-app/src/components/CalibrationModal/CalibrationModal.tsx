@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useCalibrationStore, CALIBRATION_STEPS } from "../../stores/calibrationStore";
 import { useImageStore } from "../../stores/imageStore";
+import { useCurveStore } from "../../stores/curveStore";
 import { useProcessing } from "../../hooks/useProcessing";
 import { CalibrationCanvas } from "./CalibrationCanvas";
 import { TEMPLATES } from "../Sidebar/TemplateSelector";
@@ -66,8 +67,28 @@ export function CalibrationModal() {
     setTemplateId,
   } = useCalibrationStore();
 
-  const { originalImage, setOriginalImage, setGridCalibration, setViewMode } = useImageStore();
+  const { originalImage, setOriginalImage, setGridCalibration, setViewMode, imagePath, setImagePath } = useImageStore();
   const { loadGridCalibration } = useProcessing();
+  const clearCurve = useCurveStore((s) => s.clear);
+
+  // Persist the in-memory rotated image to disk so the segmenter (which reads
+  // from a path) sees the same pixels we display. Updates imagePath to the
+  // temp file. The extracted curve, starting points etc. were positioned on
+  // the old (un-rotated) pixels, so we clear them — the auto-extract effect
+  // will re-run on the new path.
+  const persistRotatedImageIfNeeded = useCallback(async (rotatedBase64: string) => {
+    if (!imagePath) return;
+    try {
+      const newPath = await invoke<string>("save_rotated_image", {
+        imagePath,
+        base64Png: rotatedBase64,
+      });
+      clearCurve();
+      setImagePath(newPath);
+    } catch (err) {
+      console.error("Failed to persist rotated image:", err);
+    }
+  }, [imagePath, setImagePath, clearCurve]);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -114,6 +135,7 @@ export function CalibrationModal() {
           alignmentPoint.y
         );
         setOriginalImage(result.rotatedImage);
+        await persistRotatedImageIfNeeded(result.rotatedImage);
       }
 
       // After rotation, alignmentPoint stays the same (it's the center)
@@ -284,6 +306,7 @@ export function CalibrationModal() {
             horizontalTop.y
           );
           setOriginalImage(result.rotatedImage);
+          await persistRotatedImageIfNeeded(result.rotatedImage);
         } catch (err) {
           console.error("Failed to rotate image:", err);
         } finally {

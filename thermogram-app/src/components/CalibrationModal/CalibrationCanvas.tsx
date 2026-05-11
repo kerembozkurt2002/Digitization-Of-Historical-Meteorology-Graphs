@@ -390,10 +390,9 @@ export function CalibrationCanvas({ imageData, width, height }: CalibrationCanva
     const newBottomY = origBottom.y + offsetY;
     const newCenterY = origCenterY + offsetY;
 
-    // Apply rotation transform around alignment point
     ctx.save();
     ctx.translate(alignmentPoint.x, alignmentPoint.y);
-    ctx.rotate(-rotation); // Counter the detected rotation
+    ctx.rotate(rotation);
     ctx.translate(-alignmentPoint.x, -alignmentPoint.y);
 
     // Curve parameters

@@ -1,6 +1,33 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::path::Path;
+use std::sync::Mutex;
+
+/// Tracks every rotated temp PNG we wrote in this session so we can sweep
+/// them on new-image load and on app shutdown.
+#[derive(Default)]
+struct TempFileTracker {
+    files: Mutex<HashSet<PathBuf>>,
+}
+
+impl TempFileTracker {
+    fn record(&self, path: &Path) {
+        if let Ok(mut set) = self.files.lock() {
+            set.insert(path.to_path_buf());
+        }
+    }
+
+    /// Delete every tracked file and forget them. Errors per file are ignored
+    /// — the file may already be gone or the user may not have permission.
+    fn purge(&self) {
+        if let Ok(mut set) = self.files.lock() {
+            for path in set.drain() {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PreviewResponse {
@@ -163,6 +190,55 @@ fn detect_template(image_path: String) -> Result<DetectTemplateResponse, String>
         .map_err(|e| format!("Failed to parse response: {}", e))
 }
 
+/// Write a rotated/normalized image to the OS temp directory and return its path.
+#[tauri::command]
+fn save_rotated_image(
+    image_path: String,
+    base64_png: String,
+    tracker: tauri::State<'_, TempFileTracker>,
+) -> Result<String, String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_png.as_bytes())
+        .map_err(|e| format!("Bad base64: {}", e))?;
+    let src = Path::new(&image_path);
+    let stem = src
+        .file_stem()
+        .ok_or_else(|| "Source image has no filename stem".to_string())?
+        .to_string_lossy()
+        .to_string();
+    let mut out = std::env::temp_dir();
+    out.push(format!("{}_rotated.png", stem));
+    std::fs::write(&out, &bytes)
+        .map_err(|e| format!("Failed to write rotated image: {}", e))?;
+    tracker.record(&out);
+    Ok(out.to_string_lossy().to_string())
+}
+
+/// Delete every rotated temp file we created in this session. Called by the
+/// frontend before loading a new image and again on app shutdown.
+#[tauri::command]
+fn cleanup_rotated_temp_files(tracker: tauri::State<'_, TempFileTracker>) -> Result<(), String> {
+    tracker.purge();
+    Ok(())
+}
+
+/// Write a CSV file next to the source image.
+#[tauri::command]
+fn write_csv_next_to_image(image_path: String, csv_content: String) -> Result<String, String> {
+    let path = Path::new(&image_path);
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Image has no parent directory".to_string())?;
+    let stem = path
+        .file_stem()
+        .ok_or_else(|| "Image has no filename stem".to_string())?;
+    let csv_path = parent.join(format!("{}.csv", stem.to_string_lossy()));
+    std::fs::write(&csv_path, csv_content)
+        .map_err(|e| format!("Failed to write CSV: {}", e))?;
+    Ok(csv_path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 fn get_calibration(template_id: String) -> Result<GetCalibrationResponse, String> {
     let args = vec!["get-calibration", "--template-id", &template_id];
@@ -304,18 +380,29 @@ fn snap_drawing_to_curve(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .manage(TempFileTracker::default())
         .invoke_handler(tauri::generate_handler![
             preview_grid,
             detect_template,
+            save_rotated_image,
+            cleanup_rotated_temp_files,
+            write_csv_next_to_image,
             get_calibration,
             save_calibration_simple,
             extract_curve,
             snap_drawing_to_curve
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|handle, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            // Sweep any rotated temp files we wrote during the session.
+            handle.state::<TempFileTracker>().purge();
+        }
+    });
 }

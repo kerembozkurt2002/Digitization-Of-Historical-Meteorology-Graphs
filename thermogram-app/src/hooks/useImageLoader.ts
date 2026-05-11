@@ -12,7 +12,6 @@
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useImageStore } from "../stores/imageStore";
-import type { SavedCalibrationData } from "../stores/calibrationStore";
 import { useDataStore } from "../stores/dataStore";
 import { useCurveStore } from "../stores/curveStore";
 import type { PreviewResponse, DetectTemplateResponse, GetCalibrationResponse } from "../types";
@@ -20,6 +19,7 @@ import type { PreviewResponse, DetectTemplateResponse, GetCalibrationResponse } 
 export function useImageLoader() {
   const {
     setImagePath,
+    setOriginalImagePath,
     setOriginalImage,
     setProcessingState,
     setImageDimensions,
@@ -51,8 +51,17 @@ export function useImageLoader() {
     setDetectedTemplate(null);
     setGridCalibration(null);
 
-    // Set new image path
+    // Forget any rotated temp PNGs left over from a previous image
+    try {
+      await invoke("cleanup_rotated_temp_files");
+    } catch (err) {
+      console.warn("cleanup_rotated_temp_files failed:", err);
+    }
+
+    // Set new image path. Also remember the original source path so a later
+    // re-align can roll back the rotated temp copy we may write out.
     setImagePath(filePath);
+    setOriginalImagePath(filePath);
     setProcessingState({
       stage: "preprocessing",
       progress: 10,
@@ -115,6 +124,7 @@ export function useImageLoader() {
           confidence: templateResult.confidence ?? 0,
           period: templateResult.period ?? "unknown",
           gridColor: templateResult.grid_color ?? "unknown",
+          allScores: templateResult.all_scores,
         });
       }
     } catch (err) {
@@ -160,7 +170,7 @@ export function useImageLoader() {
     // Don't auto-open alignment modal - user can click "Align" button when needed
 
     return { success: true, needsCalibration, templateId };
-  }, [setImagePath, setOriginalImage, setProcessingState, setImageDimensions, setDetectedTemplate, setGridCalibration, resetData, clearCurve]);
+  }, [setImagePath, setOriginalImagePath, setOriginalImage, setProcessingState, setImageDimensions, setDetectedTemplate, setGridCalibration, resetData, clearCurve]);
 
   return { loadImageFromPath };
 }

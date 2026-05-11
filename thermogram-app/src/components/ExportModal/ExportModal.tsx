@@ -9,10 +9,10 @@
  */
 
 import { useState, useCallback, useMemo, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useImageStore } from "../../stores/imageStore";
 import { useCurveStore } from "../../stores/curveStore";
 import {
-  exportCurveData,
   generateExportData,
   exportToCSV,
   type ExportConfig,
@@ -192,16 +192,32 @@ export function ExportModal({ isOpen, onClose, onExportSuccess }: ExportModalPro
     return exportToCSV(rows);
   }, [getCalibrationData, getExportConfig, curvePoints, curveRawPoints]);
 
-  // Handle export
-  const handleExport = useCallback(() => {
+  const [isWriting, setIsWriting] = useState(false);
+  const [writeError, setWriteError] = useState<string | null>(null);
+
+  // Handle export: write CSV next to the source image (overwrites silently).
+  const handleExport = useCallback(async () => {
     const calibrationData = getCalibrationData();
     const config = getExportConfig();
-    if (!calibrationData || !config || curvePoints.length === 0) return;
+    if (!calibrationData || !config || curvePoints.length === 0 || !imagePath) return;
 
-    exportCurveData(curvePoints, curveRawPoints, calibrationData, config);
-    onClose();
-    onExportSuccess?.();
-  }, [getCalibrationData, getExportConfig, curvePoints, curveRawPoints, onClose, onExportSuccess]);
+    setIsWriting(true);
+    setWriteError(null);
+    try {
+      const rows = generateExportData(curvePoints, curveRawPoints, calibrationData, config);
+      const csv = exportToCSV(rows);
+      await invoke<string>("write_csv_next_to_image", {
+        imagePath,
+        csvContent: csv,
+      });
+      onClose();
+      onExportSuccess?.();
+    } catch (e) {
+      setWriteError(String(e));
+    } finally {
+      setIsWriting(false);
+    }
+  }, [getCalibrationData, getExportConfig, curvePoints, curveRawPoints, imagePath, onClose, onExportSuccess]);
 
   // Handle hour input with validation
   const handleHourChange = (value: string) => {
@@ -323,17 +339,21 @@ export function ExportModal({ isOpen, onClose, onExportSuccess }: ExportModalPro
         </div>
 
         <div className="export-modal-footer">
-          <span className="footer-info">{curvePoints.length} rows</span>
+          <span className="footer-info">
+            {curvePoints.length} rows
+            {writeError && <span className="export-error"> · {writeError}</span>}
+          </span>
           <div className="footer-buttons">
-            <button className="btn btn-secondary" onClick={onClose}>
+            <button className="btn btn-secondary" onClick={onClose} disabled={isWriting}>
               Cancel
             </button>
             <button
-              className="btn btn-primary"
+              className="btn btn-approve"
               onClick={handleExport}
-              disabled={!gridCalibration || curvePoints.length === 0}
+              disabled={!gridCalibration || curvePoints.length === 0 || !imagePath || isWriting}
+              title="Save CSV next to the source image"
             >
-              Export CSV
+              {isWriting ? "Saving..." : "Approve"}
             </button>
           </div>
         </div>

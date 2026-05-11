@@ -279,6 +279,7 @@
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
+  margin-bottom: 0;
 }
 
 .export-modal .btn-primary {
@@ -302,6 +303,25 @@
 
 .export-modal .btn-secondary:hover:not(:disabled) {
   background-color: #1a4a7a;
+}
+
+.export-modal .btn-approve {
+  background-color: #2e7d32;
+  color: white;
+}
+
+.export-modal .btn-approve:hover:not(:disabled) {
+  background-color: #388e3c;
+}
+
+.export-modal .btn-approve:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.export-modal .export-error {
+  color: #ff8a80;
+  margin-left: 0.5rem;
 }
 
 /* ============================================

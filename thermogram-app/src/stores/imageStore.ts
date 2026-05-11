@@ -19,6 +19,7 @@ interface DetectedTemplate {
   confidence: number;
   period: string;
   gridColor: string;
+  allScores?: Record<string, number>;
 }
 
 interface GridCalibrationData {
@@ -47,6 +48,10 @@ interface GridCalibrationData {
 interface ImageState {
   // File state
   imagePath: string | null;
+  // The user-supplied source path. imagePath may be replaced with a rotated
+  // temp copy after alignment; this one always points at the original scan
+  // so re-aligning can start from a fresh, un-rotated image.
+  originalImagePath: string | null;
   metadata: ChartMetadata | null;
 
   // Template detection
@@ -75,6 +80,7 @@ interface ImageState {
 
   // Actions
   setImagePath: (path: string | null) => void;
+  setOriginalImagePath: (path: string | null) => void;
   setMetadata: (metadata: ChartMetadata | null) => void;
   setDetectedTemplate: (template: DetectedTemplate | null) => void;
   setGridCalibration: (calibration: GridCalibrationData | null) => void;
@@ -109,6 +115,7 @@ const initialCalibration: CalibrationSettings = { ...CHART_TYPE_DEFAULTS.daily }
 export const useImageStore = create<ImageState>((set) => ({
   // Initial state
   imagePath: null,
+  originalImagePath: null,
   metadata: null,
   detectedTemplate: null,
   gridCalibration: null,
@@ -129,6 +136,8 @@ export const useImageStore = create<ImageState>((set) => ({
       viewMode: "image",
       processing: { stage: "preprocessing", progress: 10, message: "Loading image..." },
     }),
+
+  setOriginalImagePath: (path) => set({ originalImagePath: path }),
 
   setMetadata: (metadata) => set({ metadata }),
 
@@ -182,6 +191,7 @@ export const useImageStore = create<ImageState>((set) => ({
   reset: () =>
     set({
       imagePath: null,
+      originalImagePath: null,
       metadata: null,
       detectedTemplate: null,
       gridCalibration: null,
