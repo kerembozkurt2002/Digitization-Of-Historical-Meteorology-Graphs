@@ -50,19 +50,13 @@ export async function rotateImage(
         return;
       }
 
-      // Clear with white background (or transparent)
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Move to center point, rotate, then draw image offset back
       ctx.translate(centerX, centerY);
       ctx.rotate(-angleRadians); // Negative because we want to correct the skew
       ctx.translate(-centerX, -centerY);
 
-      // Draw the image
       ctx.drawImage(img, 0, 0);
 
-      // Get rotated image as base64
+      // PNG preserves the alpha channel so the wedges stay transparent.
       const dataUrl = canvas.toDataURL("image/png");
       const rotatedBase64 = dataUrl.replace(/^data:image\/png;base64,/, "");
 

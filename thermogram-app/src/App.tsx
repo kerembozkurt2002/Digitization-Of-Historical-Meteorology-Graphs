@@ -135,16 +135,21 @@ function App() {
   // Export modal state
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
-  // Global notification state
+  // Global notification state. When a CSV is written we also expose its path
+  // so the notification can offer View/Open buttons. The longer dismiss gives
+  // the user time to click before the toast hides itself.
   const [notification, setNotification] = useState<string | null>(null);
+  const [notificationPath, setNotificationPath] = useState<string | null>(null);
 
-  // Clear notification after 3 seconds
   useEffect(() => {
     if (notification) {
-      const timer = setTimeout(() => setNotification(null), 3000);
+      const timer = setTimeout(() => {
+        setNotification(null);
+        setNotificationPath(null);
+      }, notificationPath ? 8000 : 3000);
       return () => clearTimeout(timer);
     }
-  }, [notification]);
+  }, [notification, notificationPath]);
 
   // Track if calibration file exists for current template
   const [hasCalibrationFile, setHasCalibrationFile] = useState(false);
@@ -476,6 +481,24 @@ function App() {
         <div className="global-notification">
           <span className="notification-icon">&#10003;</span>
           {notification}
+          {notificationPath && (
+            <span className="notification-actions">
+              <button
+                type="button"
+                className="notification-action-btn"
+                onClick={() => invoke("reveal_file_in_folder", { path: notificationPath })}
+              >
+                View
+              </button>
+              <button
+                type="button"
+                className="notification-action-btn"
+                onClick={() => invoke("open_file_path", { path: notificationPath })}
+              >
+                Open
+              </button>
+            </span>
+          )}
         </div>
       )}
 
@@ -484,7 +507,11 @@ function App() {
       <ExportModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
-        onExportSuccess={() => setNotification("Exported CSV")}
+        onExportSuccess={(csvPath) => {
+          const basename = csvPath.split(/[\\/]/).pop() ?? csvPath;
+          setNotificationPath(csvPath);
+          setNotification(`Exported ${basename}`);
+        }}
       />
 
       <div className="main-layout">

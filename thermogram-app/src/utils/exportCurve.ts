@@ -92,8 +92,8 @@ export function generateExportData(
     // Interpolate time using curvature correction
     const time = interpolateTime(point.x, point.y, verticalLines, calibration);
 
-    // Interpolate temperature from horizontal lines
-    const temperature = interpolateTemperature(point.y, calibration);
+    // Interpolate temperature from horizontal lines, round to 3 decimals.
+    const temperature = Math.round(interpolateTemperature(point.y, calibration) * 1000) / 1000;
 
     const row: ExportRow = {
       id: index + 1,

@@ -228,6 +228,7 @@
 .export-modal .input-hour,
 .export-modal .input-minute {
   -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 /* CSV Preview Container */

@@ -100,11 +100,13 @@ function parseDateFromFilename(filepath: string | null): string | null {
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onExportSuccess?: () => void;
+  onExportSuccess?: (csvPath: string) => void;
 }
 
 export function ExportModal({ isOpen, onClose, onExportSuccess }: ExportModalProps) {
-  const { gridCalibration, detectedTemplate, imagePath } = useImageStore();
+  const { gridCalibration, detectedTemplate, imagePath, originalImagePath } = useImageStore();
+  // CSV must land next to the user's original scan, never the rotated temp.
+  const exportImagePath = originalImagePath ?? imagePath;
   const { points: curvePoints, rawPoints: curveRawPoints } = useCurveStore();
 
   // Debug: log imagePath whenever modal is open
@@ -195,29 +197,30 @@ export function ExportModal({ isOpen, onClose, onExportSuccess }: ExportModalPro
   const [isWriting, setIsWriting] = useState(false);
   const [writeError, setWriteError] = useState<string | null>(null);
 
-  // Handle export: write CSV next to the source image (overwrites silently).
+  // Handle export: write CSV next to the user's original image (not the rotated
+  // temp copy we may have created in alignment). Overwrites silently.
   const handleExport = useCallback(async () => {
     const calibrationData = getCalibrationData();
     const config = getExportConfig();
-    if (!calibrationData || !config || curvePoints.length === 0 || !imagePath) return;
+    if (!calibrationData || !config || curvePoints.length === 0 || !exportImagePath) return;
 
     setIsWriting(true);
     setWriteError(null);
     try {
       const rows = generateExportData(curvePoints, curveRawPoints, calibrationData, config);
       const csv = exportToCSV(rows);
-      await invoke<string>("write_csv_next_to_image", {
-        imagePath,
+      const csvPath = await invoke<string>("write_csv_next_to_image", {
+        imagePath: exportImagePath,
         csvContent: csv,
       });
       onClose();
-      onExportSuccess?.();
+      onExportSuccess?.(csvPath);
     } catch (e) {
       setWriteError(String(e));
     } finally {
       setIsWriting(false);
     }
-  }, [getCalibrationData, getExportConfig, curvePoints, curveRawPoints, imagePath, onClose, onExportSuccess]);
+  }, [getCalibrationData, getExportConfig, curvePoints, curveRawPoints, exportImagePath, onClose, onExportSuccess]);
 
   // Handle hour input with validation
   const handleHourChange = (value: string) => {
@@ -238,6 +241,19 @@ export function ExportModal({ isOpen, onClose, onExportSuccess }: ExportModalPro
       setStartMinute(0);
     }
   };
+
+  // Close on Escape while the modal is open.
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -350,7 +366,7 @@ export function ExportModal({ isOpen, onClose, onExportSuccess }: ExportModalPro
             <button
               className="btn btn-approve"
               onClick={handleExport}
-              disabled={!gridCalibration || curvePoints.length === 0 || !imagePath || isWriting}
+              disabled={!gridCalibration || curvePoints.length === 0 || !exportImagePath || isWriting}
               title="Save CSV next to the source image"
             >
               {isWriting ? "Saving..." : "Approve"}

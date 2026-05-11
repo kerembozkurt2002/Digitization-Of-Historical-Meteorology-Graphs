@@ -283,11 +283,7 @@ export function interpolateTemperature(
   const topTemp = horizontalLines[adjacent.topIndex].temperature;
   const bottomTemp = horizontalLines[adjacent.bottomIndex].temperature;
 
-  // Linear interpolation between temperatures
-  const temperature = topTemp + adjacent.ratio * (bottomTemp - topTemp);
-
-  // Round to 1 decimal place
-  return Math.round(temperature * 10) / 10;
+  return topTemp + adjacent.ratio * (bottomTemp - topTemp);
 }
 
 /**

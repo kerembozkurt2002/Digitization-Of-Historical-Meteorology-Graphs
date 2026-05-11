@@ -224,6 +224,59 @@ fn cleanup_rotated_temp_files(tracker: tauri::State<'_, TempFileTracker>) -> Res
     Ok(())
 }
 
+/// Open a file with the OS default handler (so CSV opens in the user's preferred app).
+#[tauri::command]
+fn open_file_path(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let mut cmd = Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = Command::new("cmd");
+        c.args(["/C", "start", ""]);
+        c
+    };
+    #[cfg(target_os = "linux")]
+    let mut cmd = Command::new("xdg-open");
+
+    cmd.arg(&path);
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Failed to open path: {}", e))
+}
+
+/// Reveal a file in the OS file manager, selecting it when possible.
+#[tauri::command]
+fn reveal_file_in_folder(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("Failed to reveal in Finder: {}", e))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(format!("/select,{}", path))
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("Failed to reveal in Explorer: {}", e))
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // No reliable cross-DE way to select; open the parent directory instead.
+        let parent = Path::new(&path)
+            .parent()
+            .ok_or_else(|| "Path has no parent directory".to_string())?;
+        Command::new("xdg-open")
+            .arg(parent)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("Failed to open folder: {}", e))
+    }
+}
+
 /// Write a CSV file next to the source image.
 #[tauri::command]
 fn write_csv_next_to_image(image_path: String, csv_content: String) -> Result<String, String> {
@@ -392,6 +445,8 @@ pub fn run() {
             save_rotated_image,
             cleanup_rotated_temp_files,
             write_csv_next_to_image,
+            open_file_path,
+            reveal_file_in_folder,
             get_calibration,
             save_calibration_simple,
             extract_curve,

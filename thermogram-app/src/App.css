@@ -625,7 +625,7 @@
 
 .global-notification {
   position: fixed;
-  top: 20px;
+  top: 90px;
   right: 20px;
   z-index: 2000;
   background-color: #4ade80;
@@ -638,11 +638,34 @@
   align-items: center;
   gap: 0.5rem;
   box-shadow: 0 4px 20px rgba(74, 222, 128, 0.3);
-  animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s forwards;
+  animation: slideIn 0.3s ease;
 }
 
 .global-notification .notification-icon {
   font-size: 1rem;
+}
+
+.global-notification .notification-actions {
+  display: inline-flex;
+  gap: 0.4rem;
+  margin-left: 0.6rem;
+}
+
+.global-notification .notification-action-btn {
+  background-color: #0f0f1a;
+  color: #4ade80;
+  border: 1px solid #0f0f1a;
+  padding: 0.25rem 0.65rem;
+  border-radius: 5px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.global-notification .notification-action-btn:hover {
+  background-color: #1a1a2e;
+  color: #6dff6d;
 }
 
 @keyframes slideIn {
