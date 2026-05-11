@@ -11,6 +11,7 @@ import { TemplateSelector } from "./components/Sidebar/TemplateSelector";
 import { CalibrationModal } from "./components/CalibrationModal";
 import { ExportModal } from "./components/ExportModal";
 import { useImageLoader } from "./hooks/useImageLoader";
+import { useZoomPan } from "./hooks/useZoomPan";
 import type { ViewMode, GetCalibrationResponse } from "./types";
 import "./App.css";
 
@@ -187,6 +188,7 @@ function App() {
   // Workspace zoom
   const [zoom, setZoom] = useState(1.0);
   const workspaceRef = useRef<HTMLElement>(null);
+  const sizerRef = useRef<HTMLDivElement>(null);
 
   // Reset zoom on image change
   useEffect(() => {
@@ -220,23 +222,17 @@ function App() {
     }
   }, [originalImage]);
 
-  // Ctrl+scroll to zoom workspace (non-passive to allow preventDefault)
-  useEffect(() => {
-    const el = workspaceRef.current;
-    if (!el) return;
-    const handler = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        const delta = e.deltaY > 0 ? -0.15 : 0.15;
-        setZoom((z) => Math.max(0.25, Math.min(5.0, z + delta)));
-      }
-    };
-    el.addEventListener("wheel", handler, { passive: false });
-    return () => el.removeEventListener("wheel", handler);
-  }, []);
+  useZoomPan({
+    containerRef: workspaceRef,
+    contentRef: sizerRef,
+    zoom,
+    setZoom,
+    minZoom: 0.25,
+    maxZoom: 5.0,
+  });
 
-  const zoomIn = useCallback(() => setZoom((z) => Math.min(5.0, z + 0.25)), []);
-  const zoomOut = useCallback(() => setZoom((z) => Math.max(0.25, z - 0.25)), []);
+  const zoomIn = useCallback(() => setZoom((z) => Math.min(5.0, z * 1.25)), []);
+  const zoomOut = useCallback(() => setZoom((z) => Math.max(0.25, z / 1.25)), []);
   const zoomReset = useCallback(() => setZoom(1.0), []);
 
   // Get curve bounds: prefer manual bounds from store, fall back to grid calibration
@@ -544,7 +540,7 @@ function App() {
                       disabled={!originalImage}
                       title={isDrawing ? "Snap drawing to curve and merge" : "Enter freehand drawing mode"}
                     >
-                      {isDrawing ? "Apply Drawing" : "Draw Curve"}
+                      {isDrawing ? "Apply Drawing" : "Edit Curve"}
                     </button>
                     {isDrawing && drawingStrokes.length > 0 && (
                       <button
@@ -727,7 +723,7 @@ function App() {
 
         <main
           ref={workspaceRef}
-          className={`workspace ${isDragOver ? "drag-over" : ""} ${zoom > 1 ? "workspace-zoomed" : ""}`}
+          className={`workspace ${isDragOver ? "drag-over" : ""}`}
         >
           {isDragOver && (
             <div className="drop-overlay">
@@ -740,6 +736,7 @@ function App() {
           {originalImage ? (
             <>
               <div
+                ref={sizerRef}
                 className="zoom-sizer"
                 style={{
                   width: imageDimensions.width * zoom,

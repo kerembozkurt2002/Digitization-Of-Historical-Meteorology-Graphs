@@ -38,7 +38,7 @@ const POINT_RADIUS = 3;
 const POINT_HOVER_RADIUS = 5;
 const POINT_HIT_RADIUS = 10;
 const SPARSE_DOT_INTERVAL = 10;
-const INFLUENCE_SIGMA = 5;
+const INFLUENCE_SIGMA = 1.2;
 const CURVE_COLOR = "#ff2222";
 const CURVE_EDITED_COLOR = "#ff8800";
 const STROKE_COLORS = ["#00ff88", "#00ddff", "#ccff00", "#ff66cc", "#ffaa00", "#aa88ff"];
@@ -95,7 +95,6 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
   const [isMultiDragging, setIsMultiDragging] = useState(false);
   const [multiDragStartY, setMultiDragStartY] = useState<number | null>(null);
-  const [multiDragLastY, setMultiDragLastY] = useState<number | null>(null);
   const [isFreehandActive, setIsFreehandActive] = useState(false);
   const [refineDragStart, setRefineDragStart] = useState<{ sx: number; sy: number } | null>(null);
   const [refineDragEnd, setRefineDragEnd] = useState<{ sx: number; sy: number } | null>(null);
@@ -112,6 +111,40 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
         const weight = Math.exp(-(d * d) / (2 * INFLUENCE_SIGMA * INFLUENCE_SIGMA));
         const newY = Math.max(0, Math.min(imageHeight, result[j].y + deltaY * weight));
         result[j] = { x: result[j].x, y: newY };
+      }
+      return result;
+    },
+    [imageHeight]
+  );
+
+  // Multi-select gaussian: selected points get full deltaY, unselected neighbors
+  // fall off by distance to the nearest selected index.
+  const applyGaussianInfluenceMulti = useCallback(
+    (pts: CurvePoint[], selectedIndices: number[], deltaY: number): CurvePoint[] => {
+      if (selectedIndices.length === 0) return pts;
+      const result = [...pts];
+      const radius = Math.ceil(INFLUENCE_SIGMA * 3);
+      const selectedSet = new Set(selectedIndices);
+      const minSel = Math.min(...selectedIndices);
+      const maxSel = Math.max(...selectedIndices);
+      const lo = Math.max(0, minSel - radius);
+      const hi = Math.min(result.length - 1, maxSel + radius);
+      for (let i = lo; i <= hi; i++) {
+        let minDist = Infinity;
+        if (selectedSet.has(i)) {
+          minDist = 0;
+        } else {
+          for (let d = 1; d <= radius; d++) {
+            if (selectedSet.has(i - d) || selectedSet.has(i + d)) {
+              minDist = d;
+              break;
+            }
+          }
+        }
+        if (minDist === Infinity) continue;
+        const weight = Math.exp(-(minDist * minDist) / (2 * INFLUENCE_SIGMA * INFLUENCE_SIGMA));
+        const newY = Math.max(0, Math.min(imageHeight, pts[i].y + deltaY * weight));
+        result[i] = { x: pts[i].x, y: newY };
       }
       return result;
     },
@@ -607,7 +640,7 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
           setIsMultiDragging(true);
           const { ny } = toImage(sx, sy);
           setMultiDragStartY(ny);
-          setMultiDragLastY(ny);
+          dragStartPointsRef.current = [...useCurveStore.getState().points];
         } else {
           setSelectedPointIndices([]);
           if (idx !== null) {
@@ -656,21 +689,26 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
       if (selectionBox) {
         e.stopPropagation();
         setSelectionBox((prev) => (prev ? { ...prev, endX: sx, endY: sy } : null));
-      } else if (isMultiDragging && multiDragLastY !== null) {
+      } else if (isMultiDragging && multiDragStartY !== null) {
         e.stopPropagation();
         const { ny: currentY } = toImage(sx, sy);
-        const deltaY = currentY - multiDragLastY;
-
-        const curveStore = useCurveStore.getState();
-        const newPoints = [...curveStore.points];
-        for (const idx of selectedPointIndices) {
-          if (idx >= 0 && idx < newPoints.length) {
-            const newY = Math.max(0, Math.min(imageHeight, newPoints[idx].y + deltaY));
-            newPoints[idx] = { x: newPoints[idx].x, y: newY };
+        const deltaY = currentY - multiDragStartY;
+        const origPts = dragStartPointsRef.current;
+        if (origPts) {
+          let newPoints: CurvePoint[];
+          if (e.shiftKey) {
+            newPoints = [...origPts];
+            for (const idx of selectedPointIndices) {
+              if (idx >= 0 && idx < newPoints.length) {
+                const newY = Math.max(0, Math.min(imageHeight, origPts[idx].y + deltaY));
+                newPoints[idx] = { x: origPts[idx].x, y: newY };
+              }
+            }
+          } else {
+            newPoints = applyGaussianInfluenceMulti(origPts, selectedPointIndices, deltaY);
           }
+          useCurveStore.setState({ points: newPoints });
         }
-        useCurveStore.setState({ points: newPoints });
-        setMultiDragLastY(currentY);
       } else if (dragPointIndex !== null) {
         e.stopPropagation();
         let { ny: iy } = toImage(sx, sy);
@@ -678,7 +716,13 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
         const origPts = dragStartPointsRef.current;
         if (origPts) {
           const deltaY = iy - origPts[dragPointIndex].y;
-          const newPoints = applyGaussianInfluence(origPts, dragPointIndex, deltaY);
+          let newPoints: CurvePoint[];
+          if (e.shiftKey) {
+            newPoints = [...origPts];
+            newPoints[dragPointIndex] = { x: origPts[dragPointIndex].x, y: iy };
+          } else {
+            newPoints = applyGaussianInfluence(origPts, dragPointIndex, deltaY);
+          }
           useCurveStore.setState({ points: newPoints });
         }
       } else {
@@ -686,9 +730,9 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
         setHoveredIndex(idx);
       }
     },
-    [getCanvasPos, selectionBox, isMultiDragging, multiDragLastY, dragPointIndex,
+    [getCanvasPos, selectionBox, isMultiDragging, multiDragStartY, dragPointIndex,
      toImage, imageHeight, findNearestPoint, selectedPointIndices, applyGaussianInfluence,
-     isDrawing, isFreehandActive, addDrawingPoint, refineDragStart]
+     applyGaussianInfluenceMulti, isDrawing, isFreehandActive, addDrawingPoint, refineDragStart]
   );
 
   const handleMouseUp = useCallback(
@@ -728,7 +772,6 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
         useCurveStore.getState().setPoints([...curveStore.points]);
         setIsMultiDragging(false);
         setMultiDragStartY(null);
-        setMultiDragLastY(null);
       } else if (dragPointIndex !== null) {
         e.stopPropagation();
         const curveStore = useCurveStore.getState();
@@ -757,7 +800,6 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
     if (isMultiDragging) {
       setIsMultiDragging(false);
       setMultiDragStartY(null);
-      setMultiDragLastY(null);
     }
     if (refineDragStart) {
       setRefineDragStart(null);

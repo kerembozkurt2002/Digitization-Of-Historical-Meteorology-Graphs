@@ -294,8 +294,8 @@ export function CalibrationModal() {
     }
   }, [currentStep, canProceed, nextStep, handleSave, horizontalTop, rotationAngle, originalImage, setOriginalImage]);
 
-  const handleZoomIn = useCallback(() => setZoom(zoom + 0.25), [zoom, setZoom]);
-  const handleZoomOut = useCallback(() => setZoom(zoom - 0.25), [zoom, setZoom]);
+  const handleZoomIn = useCallback(() => setZoom(zoom * 1.25), [zoom, setZoom]);
+  const handleZoomOut = useCallback(() => setZoom(zoom / 1.25), [zoom, setZoom]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -391,11 +391,11 @@ export function CalibrationModal() {
           {/* Footer */}
           <div className="calibration-footer">
             <div className="zoom-controls">
-              <button className="btn btn-small" onClick={() => setZoom(zoom - 0.25)} disabled={zoom <= 0.1}>
+              <button className="btn btn-small" onClick={handleZoomOut} disabled={zoom <= 0.3}>
                 −
               </button>
               <span className="zoom-level">{Math.round(zoom * 100)}%</span>
-              <button className="btn btn-small" onClick={() => setZoom(zoom + 0.25)} disabled={zoom >= 3.0}>
+              <button className="btn btn-small" onClick={handleZoomIn} disabled={zoom >= 3.0}>
                 +
               </button>
             </div>
@@ -736,7 +736,7 @@ export function CalibrationModal() {
         {/* Footer */}
         <div className="calibration-footer">
           <div className="zoom-controls">
-            <button className="btn btn-small" onClick={handleZoomOut} disabled={zoom <= 0.1}>
+            <button className="btn btn-small" onClick={handleZoomOut} disabled={zoom <= 0.3}>
               −
             </button>
             <span className="zoom-level">{Math.round(zoom * 100)}%</span>

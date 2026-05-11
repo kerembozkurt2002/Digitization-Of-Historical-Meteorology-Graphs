@@ -253,17 +253,12 @@
 .workspace {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: safe center;
+  justify-content: safe center;
   padding: 1rem;
   overflow: auto;
   background-color: #0f0f1a;
   position: relative;
-}
-
-.workspace-zoomed {
-  align-items: flex-start;
-  justify-content: flex-start;
 }
 
 .zoom-sizer {

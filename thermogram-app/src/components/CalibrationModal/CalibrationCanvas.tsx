@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { useCalibrationStore } from "../../stores/calibrationStore";
+import { useZoomPan } from "../../hooks/useZoomPan";
 
 interface CalibrationCanvasProps {
   imageData: string;
@@ -632,18 +633,22 @@ export function CalibrationCanvas({ imageData, width, height }: CalibrationCanva
     ]
   );
 
-  // Ctrl + Mouse wheel for zoom
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        const { setZoom } = useCalibrationStore.getState();
-        const delta = e.deltaY > 0 ? -0.1 : 0.1;
-        setZoom(zoom + delta);
-      }
-    },
-    [zoom]
-  );
+  // The wrapper's parent (.calibration-canvas-container) is the scrollable element.
+  const scrollContainerRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    scrollContainerRef.current = containerRef.current?.parentElement ?? null;
+  }, []);
+  const setZoomFromHook = useCallback((z: number) => {
+    useCalibrationStore.getState().setZoom(z);
+  }, []);
+  useZoomPan({
+    containerRef: scrollContainerRef,
+    contentRef: canvasRef,
+    zoom,
+    setZoom: setZoomFromHook,
+    minZoom: 0.3,
+    maxZoom: 3.0,
+  });
 
   // Cursor style
   const getCursor = () => {
@@ -665,7 +670,6 @@ export function CalibrationCanvas({ imageData, width, height }: CalibrationCanva
         width={canvasWidth}
         height={canvasHeight}
         onClick={handleClick}
-        onWheel={handleWheel}
       />
     </div>
   );
