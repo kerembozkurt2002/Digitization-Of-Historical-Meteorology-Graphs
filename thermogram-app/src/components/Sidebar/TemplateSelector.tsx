@@ -66,6 +66,7 @@ export function TemplateSelector() {
       confidence: 1.0, // Manual selection = 100% confidence
       period: meta.period,
       gridColor: meta.gridColor,
+      allScores: detectedTemplate?.allScores,
     });
     setIsOpen(false);
 
@@ -113,12 +114,19 @@ export function TemplateSelector() {
         <div className="template-info">
           <span className="template-id">{detectedTemplate.templateId}</span>
           <span className="template-confidence">
-            {detectedTemplate.confidence === 1.0 ? "Manual" : `${(detectedTemplate.confidence * 100).toFixed(0)}%`}
+            {(() => {
+              const score = detectedTemplate.allScores?.[detectedTemplate.templateId];
+              return typeof score === "number"
+                ? `${(score * 100).toFixed(0)}%`
+                : detectedTemplate.confidence === 1.0
+                  ? "Manual"
+                  : `${(detectedTemplate.confidence * 100).toFixed(0)}%`;
+            })()}
           </span>
         </div>
         <div className="template-details">
           <small>
-            {detectedTemplate.chartType} · {detectedTemplate.period} · {detectedTemplate.gridColor}
+            {detectedTemplate.chartType} · {detectedTemplate.gridColor}
           </small>
         </div>
         <span className="dropdown-arrow">{isOpen ? "▲" : "▼"}</span>
@@ -129,6 +137,8 @@ export function TemplateSelector() {
           {(Object.keys(TEMPLATES) as TemplateId[]).map((templateId) => {
             const meta = TEMPLATES[templateId];
             const isSelected = detectedTemplate.templateId === templateId;
+            const score = detectedTemplate.allScores?.[templateId];
+            const scoreLabel = typeof score === "number" ? `${(score * 100).toFixed(0)}%` : "—";
 
             return (
               <div
@@ -137,9 +147,8 @@ export function TemplateSelector() {
                 onClick={() => handleSelect(templateId)}
               >
                 <span className="option-id">{templateId}</span>
-                <span className="option-details">
-                  {meta.chartType} · {meta.period}
-                </span>
+                <span className="option-details">{meta.chartType}</span>
+                <span className="option-score">{scoreLabel}</span>
               </div>
             );
           })}

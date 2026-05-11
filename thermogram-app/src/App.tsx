@@ -12,12 +12,15 @@ import { CalibrationModal } from "./components/CalibrationModal";
 import { ExportModal } from "./components/ExportModal";
 import { useImageLoader } from "./hooks/useImageLoader";
 import { useZoomPan } from "./hooks/useZoomPan";
-import type { ViewMode, GetCalibrationResponse } from "./types";
+import type { ViewMode, GetCalibrationResponse, PreviewResponse } from "./types";
 import "./App.css";
 
 function App() {
   const {
     imagePath,
+    originalImagePath,
+    setImagePath,
+    setOriginalImage,
     originalImage,
     imageWidth,
     imageHeight,
@@ -36,7 +39,7 @@ function App() {
     showCurve,
     error: curveError,
     extractCurve,
-    setShowCurve,
+    clear: clearCurve,
     resetEdits: resetCurveEdits,
     undo: undoCurve,
     redo: redoCurve,
@@ -78,11 +81,29 @@ function App() {
     openCalibrationModal(detectedTemplate.templateId, imageWidth, imageHeight);
   };
 
-  // Handle opening alignment modal (re-align existing calibration)
+  // Handle opening alignment modal (re-align existing calibration).
+  // If a previous rotation replaced imagePath with a temp file, restore the
+  // original source first so the user re-aligns from the un-rotated scan.
   const handleOpenAlignment = useCallback(async () => {
     if (!detectedTemplate?.templateId || !imageWidth || !imageHeight) return;
 
     try {
+      if (originalImagePath && imagePath !== originalImagePath) {
+        try {
+          const preview = await invoke<PreviewResponse>("preview_grid", {
+            imagePath: originalImagePath,
+            algorithm: 0,
+          });
+          if (preview.success && preview.preview_image) {
+            setOriginalImage(preview.preview_image);
+            setImagePath(originalImagePath);
+            clearCurve();
+          }
+        } catch (err) {
+          console.error("Failed to reload original image for re-align:", err);
+        }
+      }
+
       // Fetch fresh calibration data from backend
       const calibResult = await invoke<GetCalibrationResponse>("get_calibration", {
         templateId: detectedTemplate.templateId,
@@ -106,7 +127,7 @@ function App() {
     } catch (err) {
       console.error("Failed to load calibration for alignment:", err);
     }
-  }, [detectedTemplate?.templateId, imageWidth, imageHeight, openAlignment]);
+  }, [detectedTemplate?.templateId, imageWidth, imageHeight, openAlignment, originalImagePath, imagePath, setImagePath, setOriginalImage, clearCurve]);
 
   // Drag and drop state
   const [isDragOver, setIsDragOver] = useState(false);
@@ -190,10 +211,6 @@ function App() {
   const workspaceRef = useRef<HTMLElement>(null);
   const sizerRef = useRef<HTMLDivElement>(null);
 
-  // Reset zoom on image change
-  useEffect(() => {
-    setZoom(1.0);
-  }, [originalImage]);
 
   // Track image dimensions for canvas overlay
   const imageRef = useRef<HTMLImageElement>(null);
@@ -230,6 +247,23 @@ function App() {
     minZoom: 0.25,
     maxZoom: 5.0,
   });
+
+  // Fit the image to the workspace when a new one loads. Cap at 1.0 so small
+  // images aren't enlarged past their natural size.
+  useEffect(() => {
+    if (!originalImage || imageDimensions.width === 0 || imageDimensions.height === 0) return;
+    const el = workspaceRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const availW = rect.width - 32; // .workspace padding 1rem each side
+    const availH = rect.height - 32;
+    if (availW <= 0 || availH <= 0) {
+      setZoom(1.0);
+      return;
+    }
+    const fit = Math.min(availW / imageDimensions.width, availH / imageDimensions.height, 1.0);
+    setZoom(Math.max(0.25, fit));
+  }, [originalImage, imageDimensions.width, imageDimensions.height]);
 
   const zoomIn = useCallback(() => setZoom((z) => Math.min(5.0, z * 1.25)), []);
   const zoomOut = useCallback(() => setZoom((z) => Math.max(0.25, z / 1.25)), []);
@@ -271,6 +305,31 @@ function App() {
       }
     }
   }, [setViewMode, curvePoints.length, isExtracting, imagePath, detectedTemplate?.templateId, extractCurve, getCurveBounds, startingPoints, imageWidth]);
+
+  // Auto-open curve view the first time a freshly-loaded image has its template detected.
+  const autoCurveImageRef = useRef<string>("");
+  useEffect(() => {
+    if (!imagePath || imagePath === autoCurveImageRef.current) return;
+    if (!detectedTemplate?.templateId) return;
+    autoCurveImageRef.current = imagePath;
+    handleCurveView();
+  }, [imagePath, detectedTemplate?.templateId, handleCurveView]);
+
+  // Auto re-extract when the user switches the template manually.
+  const prevTemplateIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const newTid = detectedTemplate?.templateId ?? null;
+    const oldTid = prevTemplateIdRef.current;
+    prevTemplateIdRef.current = newTid;
+    if (oldTid === null || newTid === null || oldTid === newTid) return;
+    if (!imagePath) return;
+    if (startingPoints.length > 0) {
+      extractCurve(imagePath, newTid, 5, undefined, undefined, undefined, undefined, imageWidth || undefined);
+    } else {
+      const { xMin, xMax, yHint, yHintEnd } = getCurveBounds();
+      extractCurve(imagePath, newTid, 5, xMin, xMax, yHint, yHintEnd);
+    }
+  }, [detectedTemplate?.templateId, imagePath, extractCurve, getCurveBounds, startingPoints, imageWidth]);
 
   // Auto-extract when starting points change (add/remove/update)
   const prevStartingPointsRef = useRef<string>("");
@@ -520,7 +579,7 @@ function App() {
                 {/* Manual drawing section */}
                 <div className="drawing-section">
                   <h3>Manual Drawing</h3>
-                  <div className="curve-controls">
+                  <div className="curve-controls curve-controls-row">
                     <button
                       className={`btn ${isDrawing ? "btn-active" : "btn-secondary"}`}
                       onClick={async () => {
@@ -541,6 +600,14 @@ function App() {
                       title={isDrawing ? "Snap drawing to curve and merge" : "Enter freehand drawing mode"}
                     >
                       {isDrawing ? "Apply Drawing" : "Edit Curve"}
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={clearDrawing}
+                      disabled={drawingStrokes.length === 0}
+                      title="Clear all drawn strokes"
+                    >
+                      Clear All
                     </button>
                     {isDrawing && drawingStrokes.length > 0 && (
                       <button
@@ -575,17 +642,6 @@ function App() {
                       <p className="curve-info">{getTotalDrawingPoints()} total points</p>
                     </div>
                   )}
-
-                  <div className="curve-controls">
-                    <button
-                      className="btn btn-secondary"
-                      onClick={clearDrawing}
-                      disabled={drawingStrokes.length === 0}
-                      title="Clear all drawn strokes"
-                    >
-                      Clear All
-                    </button>
-                  </div>
                 </div>
 
                 {isExtracting && <p className="curve-info">Extracting...</p>}
@@ -690,14 +746,6 @@ function App() {
                       )}
                     </div>
 
-                    <label className="curve-toggle">
-                      <input
-                        type="checkbox"
-                        checked={showCurve}
-                        onChange={(e) => setShowCurve(e.target.checked)}
-                      />
-                      Show Curve
-                    </label>
                     <button
                       onClick={handleExport}
                       disabled={!gridCalibration}

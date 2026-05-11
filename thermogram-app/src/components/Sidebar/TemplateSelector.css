@@ -98,9 +98,24 @@
   font-weight: 600;
   color: #eaeaea;
   font-size: 0.875rem;
+  flex: 1;
 }
 
 .option-details {
   font-size: 0.7rem;
   color: #8b8b8b;
+  margin-right: 0.5rem;
+}
+
+.option-score {
+  font-size: 0.7rem;
+  font-family: monospace;
+  color: #8b8b8b;
+  min-width: 2.5rem;
+  text-align: right;
+}
+
+.template-option.selected .option-score {
+  color: #e94560;
+  font-weight: 600;
 }

@@ -167,7 +167,8 @@ export function CurveOverlay({ width, height }: CurveOverlayProps) {
   );
 
   const hasDrawingContent = drawingStrokes.some((s) => s.points.length > 0);
-  const hasExtractedCurve = showCurve && points.length >= 2;
+
+  const hasExtractedCurve = showCurve && points.length >= 2 && !isMarkingStartingPoints;
 
   // Main rendering effect
   useEffect(() => {
