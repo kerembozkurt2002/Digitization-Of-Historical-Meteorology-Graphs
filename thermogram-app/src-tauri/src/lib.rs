@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
+use tauri::Manager;
 
 /// Tracks every rotated temp PNG we wrote in this session so we can sweep
 /// them on new-image load and on app shutdown.
