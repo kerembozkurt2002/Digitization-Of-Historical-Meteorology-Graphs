@@ -77,15 +77,15 @@ class CurveSegmenter:
         outlier_mad_factor: float = 4.0,
         outlier_min_thresh: float = 10.0,
         # Smoothing
-        smooth_median_k: int = 31,
-        smooth_gauss_k: int = 61,
-        smooth_gauss_sigma: float = 12.0,
+        smooth_median_k: int = 3,
+        smooth_gauss_k: int = 5,
+        smooth_gauss_sigma: float = 1.0,
         # Grid masking (0 = disabled, recommended for template-based calibration)
         grid_mask_band: int = 0,
         # Gap handling
         max_gap: int = 40,
         # Max Y jump between consecutive points
-        max_y_jump: int = 15,
+        max_y_jump: int = 20,
         # Search band around y_hint (pixels above and below y_hint to search)
         y_hint_band: int = 300,
         # How often to update expected Y based on found values (columns)
@@ -568,6 +568,12 @@ class CurveSegmenter:
         color_profile = get_color_profile(template_id)
         mask = self._create_color_mask(image, color_profile)
 
+        clip_band = 60
+        top_band = mask[max(0, y0 - clip_band):y0, x0:x1]
+        bot_band = mask[y1:min(h, y1 + clip_band), x0:x1]
+        top_clipped = (top_band > 0).any(axis=0) if top_band.size else np.zeros(W, dtype=bool)
+        bot_clipped = (bot_band > 0).any(axis=0) if bot_band.size else np.zeros(W, dtype=bool)
+
         # Step 2: Apply Y limits
         mask[:y0, :] = 0
         mask[y1:, :] = 0
@@ -676,6 +682,19 @@ class CurveSegmenter:
         r_sorted = result[3] if len(result) > 3 else np.array([])
         # c_sorted = result[4] if len(result) > 4 else np.array([])
 
+        # Snap top/bottom-clipped columns to the chart boundary so the curve
+        # follows the edge during the out-of-range stretch instead of being
+        # interpolated diagonally across the gap.
+        nan_mask = np.isnan(ys_raw)
+        snap_top = top_clipped & nan_mask
+        snap_bot = bot_clipped & nan_mask & ~snap_top
+        if snap_top.any():
+            ys_raw[snap_top] = float(y_hard_min)
+            _dbg(f"Top-clipped columns snapped to y_hard_min: {int(snap_top.sum())}")
+        if snap_bot.any():
+            ys_raw[snap_bot] = float(y_hard_max)
+            _dbg(f"Bottom-clipped columns snapped to y_hard_max: {int(snap_bot.sum())}")
+
         valid0 = ~np.isnan(ys_raw)
         n_valid0 = int(valid0.sum())
         _dbg(f"Stage 1 columns: {n_valid0}/{W} ({100 * n_valid0 / W:.1f}%)")
@@ -726,6 +745,21 @@ class CurveSegmenter:
 
         # Step 13: Apply max Y jump filter
         gap_ok = self._filter_max_y_jump(ys_smooth, gap_ok)
+
+        # Step 13b: Edge-clamp override. Only kicks in for columns where the
+        # normal pipeline produced no valid point (gap_ok=False) AND the
+        # original mask had pixels just outside the corresponding boundary.
+        # In that case we snap the column to the boundary so the curve traces
+        # the chart edge instead of being interpolated diagonally across the
+        # gap. Columns that had a valid extraction are left alone.
+        snap_top_final = top_clipped & ~gap_ok
+        snap_bot_final = bot_clipped & ~gap_ok & ~snap_top_final
+        if snap_top_final.any():
+            ys_smooth[snap_top_final] = float(y_hard_min)
+            gap_ok[snap_top_final] = True
+        if snap_bot_final.any():
+            ys_smooth[snap_bot_final] = float(y_hard_max)
+            gap_ok[snap_bot_final] = True
 
         # Step 14: Generate output points
         points: List[CurvePoint] = []
