@@ -1,0 +1,39 @@
+% Minimal stub for the Boğaziçi University FBE thesis style.
+% Replace this file with the official `fbe_tez.sty` from the FBE template
+% before final submission. This stub only provides the geometry, line
+% spacing, and chapter-heading conventions assumed by the report body so
+% the document compiles end-to-end while the official file is unavailable.
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{styles/fbe_tez}[2026/06/04 Minimal stub for FBE thesis style]
+
+\RequirePackage[a4paper,left=3.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm]{geometry}
+\RequirePackage{setspace}
+\onehalfspacing
+\RequirePackage{indentfirst}
+
+% Strip the default 50pt top whitespace on chapter pages so the heading
+% sits at the page's top margin instead of being pushed half a page down.
+\makeatletter
+\renewcommand\@makechapterhead[1]{%
+  {\parindent \z@ \raggedright \normalfont
+    \ifnum \c@secnumdepth >\m@ne
+      \Large\bfseries \@chapapp\space \thechapter
+      \par\nobreak
+      \vskip 10\p@
+    \fi
+    \interlinepenalty\@M
+    \LARGE \bfseries #1\par\nobreak
+    \vskip 20\p@
+  }}
+\renewcommand\@makeschapterhead[1]{%
+  {\parindent \z@ \raggedright \normalfont
+    \interlinepenalty\@M
+    \LARGE \bfseries #1\par\nobreak
+    \vskip 20\p@
+  }}
+\makeatother
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{1em}
+
+\endinput
