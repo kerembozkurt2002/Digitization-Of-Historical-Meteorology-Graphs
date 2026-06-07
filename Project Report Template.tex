@@ -204,7 +204,7 @@ The application supports a single user~--- a researcher working with the Kandill
 
 \textbf{Functional requirements.} The application must accept TIFF, PNG, or JPEG input either through a file dialog or drag-and-drop. It must classify the input into one of the nine templates and surface the confidence and all candidate scores so the user can override. It must require an explicit per-template calibration before allowing extraction; the alignment modal must let the user re-align an existing calibration in place without forcing a full recalibration. It must extract the curve automatically when the user switches to curve view, accept optional segment-level starting and ending markers, accept freehand drawing as a hint that is snapped to the curve, and accept a rectangular refine area to re-extract a local region. It must support per-point dragging, multi-point deletion, undo/redo, and a reset-to-raw action. It must export CSV next to the source image and offer Reveal-in-Finder and Open-with-default-app actions on the result.
 
-\textbf{Non-functional requirements.} The desktop binary must run on macOS and Windows. A complete extract on a typical 4\,Mpx scan must finish in under three seconds on a laptop without a discrete GPU. Re-extraction with the same calibration must be bit-for-bit deterministic. All temporary files written for rotation correction must be cleaned up on app exit and on new-image load. The application must function fully offline.
+\textbf{Non-functional requirements.} The desktop binary must run on macOS and Windows. A complete extract on a typical 4\,Mpx scan must finish in under 3 seconds on a laptop without a discrete GPU. Re-extraction with the same calibration must be deterministic. All temporary files written for rotation correction must be cleaned up on exit and on new-image load. The application must function fully offline.
 
 \chapter{DESIGN}
 
@@ -239,8 +239,7 @@ The interaction between user, frontend, Rust host, and Python sidecar is summari
     \node[draw, rectangle, right=of f, minimum width=1.8cm, minimum height=0.7cm] (r) {Rust host};
     \node[draw, rectangle, right=of r, minimum width=1.8cm, minimum height=0.7cm] (p) {Python};
     \foreach \n in {u,f,r,p} { \draw[dashed] (\n.south) -- ($(\n.south) + (0,-6.5)$); }
-    \node[anchor=west, font=\scriptsize] at ($(u.south) + (0,-0.4)$) {drop image};
-    \draw[-{Latex[length=2mm]}] ($(u.south) + (0,-0.4)$) -- ($(f.south) + (0,-0.4)$);
+    \draw[-{Latex[length=2mm]}] ($(u.south) + (0,-0.4)$) -- node[above, font=\scriptsize]{drop image} ($(f.south) + (0,-0.4)$);
     \draw[-{Latex[length=2mm]}] ($(f.south) + (0,-0.9)$) -- node[above, font=\scriptsize]{detect\_template} ($(r.south) + (0,-0.9)$);
     \draw[-{Latex[length=2mm]}] ($(r.south) + (0,-1.4)$) -- node[above, font=\scriptsize]{detect-template} ($(p.south) + (0,-1.4)$);
     \draw[-{Latex[length=2mm]}, dashed] ($(p.south) + (0,-1.9)$) -- node[above, font=\scriptsize]{\{id, conf, scores\}} ($(r.south) + (0,-1.9)$);
@@ -312,7 +311,8 @@ Underneath the interactive layer the Python backend ships a fifteen-file pytest 
 \begin{table}[h!]
 \caption[Test suite layout]{Layout of the pytest suite under \texttt{backend/tests/}.}
 \begin{center}
-\small
+\footnotesize
+\renewcommand{\arraystretch}{1.0}
 \begin{tabular}{|l|p{8.5cm}|} \hline
 \textbf{File} & \textbf{What it covers} \\\hline
 \texttt{test\_preprocessor\_normalize.py} & BGR/grayscale/BGRA/uint16/float32 normalization paths. \\\hline
@@ -386,10 +386,7 @@ The project produced a working desktop application that converts scanned Kandill
 
 \appendix
 
-\chapter{APPENDICES}
-
-\section*{A. CSV Export Schema}
-\addcontentsline{toc}{section}{A. CSV Export Schema}
+\chapter{CSV EXPORT SCHEMA}
 
 Every export writes a CSV next to the source image with one row per sampled point along the extracted curve. Columns are emitted in the order shown in Table~\ref{table:csv-schema}. The final \texttt{isEdited} column is only present when at least one point in the curve has been manually moved, inserted, or deleted relative to the raw extraction; clean exports omit it entirely.
 
@@ -416,14 +413,15 @@ id,time,temperature,xValue,yValue,isEdited
 2,1980-01-01T07:35:00,18.512,617.40,338.10,yes
 \end{verbatim}
 
-\section*{B. Calibration JSON Schema}
-\addcontentsline{toc}{section}{B. Calibration JSON Schema}
+\chapter{CALIBRATION JSON SCHEMA}
 
 Each calibrated template has a single JSON file under \texttt{backend/calibrations/} named \texttt{\{template\_id\}.json}. The file is rewritten in full on every save and is the only authoritative source of grid geometry for that template; the application requires the file to exist before extraction is permitted. Table~\ref{table:cal-schema} lists the top-level keys; the \texttt{derived} block is a denormalized view that the frontend reads at every overlay redraw.
 
 \begin{table}[h!]
 \caption[Calibration JSON schema]{Top-level keys of \texttt{backend/calibrations/\{template\_id\}.json}.}
 \begin{center}
+\footnotesize
+\renewcommand{\arraystretch}{1.0}
 \begin{tabular}{|l|l|p{6.8cm}|} \hline
 \textbf{Key} & \textbf{Type} & \textbf{Meaning} \\\hline
 \texttt{template\_id}        & string & One of the nine template ids. \\\hline
@@ -447,8 +445,7 @@ Each calibrated template has a single JSON file under \texttt{backend/calibratio
 \end{center}
 \end{table}
 
-\section*{C. Per-Template Color Profiles}
-\addcontentsline{toc}{section}{C. Per-Template Color Profiles}
+\chapter{PER-TEMPLATE COLOR PROFILES}
 
 The curve segmenter uses an RGB-rule color profile per template, defined in \texttt{backend/pipeline/color\_profiles.py}. A pixel is admitted into the curve mask when, after a BGR$\to$RGB conversion, all of the conditions in Table~\ref{table:color-rules} hold. Templates not listed below use \texttt{DEFAULT\_PROFILE}, which targets pinkish/reddish ink common to most \texttt{haftalik} and \texttt{4\_gunluk} scans. Three templates additionally enable a grayscale fallback to capture faint pencil traces.
 
