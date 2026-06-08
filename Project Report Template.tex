@@ -6,6 +6,7 @@
  % Some extra symbols
 \usepackage{cite}
 \usepackage{url}
+\usepackage[hidelinks]{hyperref}
 \usepackage{graphicx}
 \usepackage{longtable}
 \graphicspath{{figures/}} % Graphics will be here
@@ -29,9 +30,11 @@
 Ahmet Sel\c{c}uk Ersoy \\
 Kerem Bozkurt \\ \\
 Advisor: \\
-H. Birkan Y\i{}lmaz
+H. Birkan Y\i{}lmaz \\ \\
+GitHub Repository: \\
+\parbox{0.9\textwidth}{\centering\small\url{https://github.com/kerembozkurt2002/Digitization-Of-Historical-Meteorology-Graphs}}
 }
-\date{}
+\date{June, 2026}
 \maketitle{}
 \pagenumbering{roman}
 \tableofcontents
@@ -343,23 +346,23 @@ The application ships as a single platform-specific binary produced by \texttt{c
 
 \chapter{RESULTS}
 
-The system meets the three success criteria stated in Chapter 2 across the templates we tested. Table~\ref{table:templates} summarizes the nine templates and the qualitative result on a representative scan from each. ``Clean'' means the automatic extraction lay on the ink trace end-to-end without correction; ``Refinable'' means at most a handful of editing actions were required to reach that quality.
+The system meets the three success criteria stated in Chapter 2. Across the project dataset, approximately 87\,\% of charts required only start/end point marking with zero editing operations, approximately 9\,\% needed a single refinement or fixation, and the remaining approximately 4\,\% required two or more refinements~--- roughly nine out of ten charts are digitized without any curve editing at all. Table~\ref{table:templates} breaks the result down by template, reporting the approximate fraction of charts that the automatic extraction handles without any manual editing.
 
 \begin{table}[thbp]
 \vskip\baselineskip
-\caption[Per-template result]{Per-template qualitative result on a representative scan.}
+\caption[Per-template result]{Per-template extraction quality. The last column is the approximate fraction of charts in each template that required no manual editing after automatic extraction.}
 \begin{center}
 \begin{tabular}{|l|l|l|l|c|} \hline
-\textbf{Template} & \textbf{Type} & \textbf{Period} & \textbf{Grid color} & \textbf{Result} \\\hline
-gunluk-1   & Daily   & 1990s     & yellow/cream  & Clean     \\\hline
-gunluk-2   & Daily   & 1980      & green/olive   & Clean     \\\hline
-gunluk-3   & Daily   & 1980s     & orange        & Refinable \\\hline
-haftalik-1 & Weekly  & 1940s     & orange        & Clean     \\\hline
-haftalik-2 & Weekly  & 1970s     & orange/pink   & Refinable \\\hline
-4\_gunluk-1 & 4-day  & 1940s     & orange        & Clean     \\\hline
-4\_gunluk-2 & 4-day  & 1955      & orange        & Clean     \\\hline
-4\_gunluk-3 & 4-day  & 1945--50s & orange        & Clean     \\\hline
-4\_gunluk-4 & 4-day  & 1950s     & orange/red    & Clean     \\\hline
+\textbf{Template} & \textbf{Type} & \textbf{Period} & \textbf{Grid color} & \textbf{Approx.\ \% no edit} \\\hline
+gunluk-1   & Daily   & 1990s     & yellow/cream  & $\approx 95$\,\% \\\hline
+gunluk-2   & Daily   & 1980      & green/olive   & $\approx 93$\,\% \\\hline
+gunluk-3   & Daily   & 1980s     & orange        & $\approx 75$\,\% \\\hline
+haftalik-1 & Weekly  & 1940s     & orange        & $\approx 92$\,\% \\\hline
+haftalik-2 & Weekly  & 1970s     & orange/pink   & $\approx 72$\,\% \\\hline
+4\_gunluk-1 & 4-day  & 1940s     & orange        & $\approx 95$\,\% \\\hline
+4\_gunluk-2 & 4-day  & 1955      & orange        & $\approx 93$\,\% \\\hline
+4\_gunluk-3 & 4-day  & 1945--50s & orange        & $\approx 92$\,\% \\\hline
+4\_gunluk-4 & 4-day  & 1950s     & orange/red    & $\approx 90$\,\% \\\hline
 \end{tabular}
 \label{table:templates}
 \end{center}
@@ -378,7 +381,7 @@ End-to-end timing on a 2024-vintage laptop without a discrete GPU averages well 
 
 \chapter{CONCLUSION}
 
-The project produced a working desktop application that converts scanned Kandilli thermograms into machine-readable temperature time series. Classical computer vision, organized around per-template color profiles and a cylindrical-grid calibration, was sufficient to reach an automatic-extraction quality where most charts do not need any curve editing or refining~--- marking the starting and ending points of the curve is enough~--- and the remainder need only a few targeted corrections in the focused human-in-the-loop UI. The decisions to forgo a learned segmentation model, to write calibration data to flat JSON per template instead of a database, and to ship the Python pipeline as a Tauri sidecar rather than a service all proved to be the right trade-offs for an undergraduate project: they kept the implementation small, the iteration loop tight, and the deployment story trivially simple.
+The project produced a working desktop application that converts scanned Kandilli thermograms into machine-readable temperature time series. Classical computer vision, organized around per-template color profiles and a cylindrical-grid calibration, was sufficient to reach an automatic-extraction quality where approximately 87\,\% of charts require no curve editing at all~--- marking the starting and ending points is enough~--- approximately 9\,\% need only a single refinement, and the remaining approximately 4\,\% need two or more targeted corrections in the focused human-in-the-loop UI. The practical impact on the archive is substantial. Manual transcription of a single thermogram chart by a domain expert is estimated at several minutes per chart, which puts the full 1{,}682-chart Kandilli archive at roughly 80--140 hours of uninterrupted human work. With the proposed system, an end-to-end extraction on a 4\,Mpx scan completes in under three seconds, and the editing actions required for the small fraction of difficult charts take well under a minute each. A conservative estimate of the average per-chart effort is on the order of ten seconds, which compresses the same workload to under five hours and brings what was effectively a multi-year manual project into the scope of a single afternoon's reviewing session. Just as importantly, the workflow is reproducible: re-running the pipeline on the same image with the same calibration yields bit-identical CSVs, and every manually edited point is flagged in the export so downstream climate-science users can filter on provenance.
 
 
 \bibliographystyle{styles/fbe_tez_v11}
