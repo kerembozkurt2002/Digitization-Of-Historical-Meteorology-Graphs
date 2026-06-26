@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{AppHandle, Manager};
 
 /// Tracks every rotated temp PNG we wrote in this session so we can sweep
 /// them on new-image load and on app shutdown.
@@ -127,26 +127,71 @@ pub struct ExtractCurveResponse {
     pub message: Option<String>,
 }
 
-/// Get the path to the Python backend
-fn get_backend_path() -> String {
-    // In development, use relative path from src-tauri
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .unwrap_or_else(|_| ".".to_string());
-    format!("{}/backend/main.py", manifest_dir.replace("/src-tauri", ""))
+/// Resolve the directory we store mutable calibrations in. Lives under the
+/// platform's app data dir so the bundled (read-only) backend binary doesn't
+/// need write access to its own install location.
+fn calibrations_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let base = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir resolve failed: {}", e))?;
+    let dir = base.join("calibrations");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Failed to create calibrations dir: {}", e))?;
+    Ok(dir)
 }
 
-/// Run Python backend command and return output
-fn run_python_command(args: Vec<&str>) -> Result<String, String> {
-    let backend_path = get_backend_path();
+/// Copy any bundled default calibrations into the user's data dir on first run.
+/// Existing files are left untouched so user edits survive across launches.
+fn seed_default_calibrations(app: &AppHandle) {
+    let Ok(dest) = calibrations_dir(app) else { return };
+    let Ok(resource_dir) = app.path().resource_dir() else { return };
+    let src = resource_dir.join("resources").join("calibrations");
+    let Ok(entries) = std::fs::read_dir(&src) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(name) = path.file_name() else { continue };
+        let target = dest.join(name);
+        if !target.exists() {
+            let _ = std::fs::copy(&path, &target);
+        }
+    }
+}
 
-    let mut cmd_args = vec![&backend_path[..]];
-    cmd_args.extend(args);
+/// Resolve the bundled backend executable. Lives next to the app resources;
+/// dev builds fall back to the PyInstaller dist next to the repo's backend dir.
+fn backend_executable(app: &AppHandle) -> Result<PathBuf, String> {
+    let res = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("resource_dir resolve failed: {}", e))?;
+    let exe_name = if cfg!(windows) { "backend.exe" } else { "backend" };
+    let candidate = res.join("resources").join("backend").join(exe_name);
+    if candidate.exists() {
+        return Ok(candidate);
+    }
+    let dev = res.join("backend").join(exe_name);
+    if dev.exists() {
+        return Ok(dev);
+    }
+    Err(format!("Backend executable not found at {}", candidate.display()))
+}
 
-    let output = Command::new("python3")
-        .args(&cmd_args)
-        .current_dir(Path::new(&backend_path).parent().unwrap())
+/// Spawn the backend executable with the given CLI args and return its stdout.
+/// Calibrations env var is injected so the Python side writes/reads from the
+/// user's app data dir instead of the (read-only) bundled location.
+fn run_backend(app: &AppHandle, args: Vec<&str>) -> Result<String, String> {
+    let cal_dir = calibrations_dir(app)?;
+    let exe = backend_executable(app)?;
+
+    let output = Command::new(&exe)
+        .args(&args)
+        .env("THERMOGRAM_CALIBRATIONS_DIR", &cal_dir)
         .output()
-        .map_err(|e| format!("Failed to execute Python: {}", e))?;
+        .map_err(|e| format!("Failed to execute backend: {}", e))?;
 
     if output.status.success() {
         String::from_utf8(output.stdout)
@@ -154,12 +199,12 @@ fn run_python_command(args: Vec<&str>) -> Result<String, String> {
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
-        Err(format!("Python error: {} {}", stderr, stdout))
+        Err(format!("Backend error: {} {}", stderr, stdout))
     }
 }
 
 #[tauri::command]
-fn preview_grid(image_path: String, algorithm: Option<i32>, output_path: Option<String>, curvature: Option<f64>) -> Result<PreviewResponse, String> {
+fn preview_grid(app: AppHandle, image_path: String, algorithm: Option<i32>, output_path: Option<String>, curvature: Option<f64>) -> Result<PreviewResponse, String> {
     let algo_str = algorithm.unwrap_or(1).to_string();
     let mut args = vec!["preview", "--image", &image_path, "--algorithm", &algo_str];
 
@@ -177,16 +222,16 @@ fn preview_grid(image_path: String, algorithm: Option<i32>, output_path: Option<
         args.push(&curvature_str);
     }
 
-    let output = run_python_command(args)?;
+    let output = run_backend(&app, args)?;
     serde_json::from_str(&output)
         .map_err(|e| format!("Failed to parse response: {}", e))
 }
 
 #[tauri::command]
-fn detect_template(image_path: String) -> Result<DetectTemplateResponse, String> {
+fn detect_template(app: AppHandle, image_path: String) -> Result<DetectTemplateResponse, String> {
     let args = vec!["detect-template", "--image", &image_path];
 
-    let output = run_python_command(args)?;
+    let output = run_backend(&app, args)?;
     serde_json::from_str(&output)
         .map_err(|e| format!("Failed to parse response: {}", e))
 }
@@ -294,16 +339,17 @@ fn write_csv_next_to_image(image_path: String, csv_content: String) -> Result<St
 }
 
 #[tauri::command]
-fn get_calibration(template_id: String) -> Result<GetCalibrationResponse, String> {
+fn get_calibration(app: AppHandle, template_id: String) -> Result<GetCalibrationResponse, String> {
     let args = vec!["get-calibration", "--template-id", &template_id];
 
-    let output = run_python_command(args)?;
+    let output = run_backend(&app, args)?;
     serde_json::from_str(&output)
         .map_err(|e| format!("Failed to parse response: {}", e))
 }
 
 #[tauri::command]
 fn save_calibration_simple(
+    app: AppHandle,
     template_id: String,
     // Horizontal (for rotation) - steps 1-3
     horizontal_top: CalibrationPoint,
@@ -351,13 +397,13 @@ fn save_calibration_simple(
         "--data", &calibration_json
     ];
 
-    let output = run_python_command(args)?;
+    let output = run_backend(&app, args)?;
     serde_json::from_str(&output)
         .map_err(|e| format!("Failed to parse response: {}", e))
 }
 
 #[tauri::command]
-fn extract_curve(image_path: String, template_id: String, sample_interval: Option<i32>, x_min: Option<i32>, x_max: Option<i32>, y_hint: Option<i32>, y_hint_end: Option<i32>, y_min: Option<i32>, y_max: Option<i32>) -> Result<ExtractCurveResponse, String> {
+fn extract_curve(app: AppHandle, image_path: String, template_id: String, sample_interval: Option<i32>, x_min: Option<i32>, x_max: Option<i32>, y_hint: Option<i32>, y_hint_end: Option<i32>, y_min: Option<i32>, y_max: Option<i32>) -> Result<ExtractCurveResponse, String> {
     let interval_str = sample_interval.unwrap_or(5).to_string();
     let x_min_str = x_min.map(|v| v.to_string());
     let x_max_str = x_max.map(|v| v.to_string());
@@ -398,13 +444,14 @@ fn extract_curve(image_path: String, template_id: String, sample_interval: Optio
         args.push(v);
     }
 
-    let output = run_python_command(args)?;
+    let output = run_backend(&app, args)?;
     serde_json::from_str(&output)
         .map_err(|e| format!("Failed to parse response: {}", e))
 }
 
 #[tauri::command]
 fn snap_drawing_to_curve(
+    app: AppHandle,
     image_path: String,
     template_id: String,
     drawn_points: Vec<CurvePointData>,
@@ -427,7 +474,7 @@ fn snap_drawing_to_curve(
         "--sample-interval", &interval_str,
     ];
 
-    let output = run_python_command(args)?;
+    let output = run_backend(&app, args)?;
     serde_json::from_str(&output)
         .map_err(|e| format!("Failed to parse response: {}", e))
 }
@@ -439,6 +486,10 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(TempFileTracker::default())
+        .setup(|app| {
+            seed_default_calibrations(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             preview_grid,
             detect_template,

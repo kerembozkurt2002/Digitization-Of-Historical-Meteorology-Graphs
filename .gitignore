@@ -8,6 +8,7 @@ data-final/
 datapng/
 data-classified/
 data-extracted/
+data-demo/
 
 # Python
 __pycache__/
@@ -45,6 +46,12 @@ Thumbs.db
 
 # Tauri
 src-tauri/target/
+
+# PyInstaller build artifacts (regenerated in CI)
+thermogram-app/backend/build/
+thermogram-app/backend/dist/
+thermogram-app/src-tauri/resources/backend/
+thermogram-app/src-tauri/binaries/
 
 profile_check_tmp/
 fix-profiles/

@@ -10,6 +10,7 @@ Curve formula: x = linearX + curvature * (y - centerY)²
 """
 
 import json
+import os
 import numpy as np
 from pathlib import Path
 from datetime import datetime
@@ -55,7 +56,11 @@ class CalibrationProcessor:
 
     def __init__(self, calibrations_dir: Optional[Path] = None):
         if calibrations_dir is None:
-            calibrations_dir = Path(__file__).parent.parent / "calibrations"
+            env_dir = os.environ.get("THERMOGRAM_CALIBRATIONS_DIR")
+            if env_dir:
+                calibrations_dir = Path(env_dir)
+            else:
+                calibrations_dir = Path(__file__).parent.parent / "calibrations"
         self.calibrations_dir = calibrations_dir
         self.calibrations_dir.mkdir(parents=True, exist_ok=True)
 

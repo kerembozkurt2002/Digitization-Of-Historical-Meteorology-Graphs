@@ -1,0 +1,133 @@
+name: release
+
+# Builds installable artifacts (.dmg, .deb/.AppImage, .msi/.exe) for macOS
+# (Apple Silicon + Intel), Linux x86_64, and Windows x86_64. The Python
+# backend is frozen with PyInstaller on each runner so it matches the host's
+# ABI, then dropped into thermogram-app/src-tauri/resources/backend/ before
+# `tauri build` runs.
+#
+# Trigger by pushing a tag like v0.1.0, or manually from the Actions tab.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            label: macos-arm64
+            rust-target: aarch64-apple-darwin
+            tauri-args: "--target aarch64-apple-darwin"
+          - os: macos-13
+            label: macos-x86_64
+            rust-target: x86_64-apple-darwin
+            tauri-args: "--target x86_64-apple-darwin"
+          - os: ubuntu-22.04
+            label: linux-x86_64
+            rust-target: x86_64-unknown-linux-gnu
+            tauri-args: ""
+          - os: windows-latest
+            label: windows-x86_64
+            rust-target: x86_64-pc-windows-msvc
+            tauri-args: ""
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system deps
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install backend Python deps + PyInstaller
+        working-directory: thermogram-app/backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install opencv-python numpy Pillow pyinstaller
+
+      - name: Freeze backend with PyInstaller
+        working-directory: thermogram-app/backend
+        run: python -m PyInstaller backend.spec --clean --noconfirm
+
+      - name: Copy frozen backend into src-tauri resources (POSIX)
+        if: matrix.os != 'windows-latest'
+        run: |
+          rm -rf thermogram-app/src-tauri/resources/backend
+          mkdir -p thermogram-app/src-tauri/resources/backend
+          cp -R thermogram-app/backend/dist/backend/. thermogram-app/src-tauri/resources/backend/
+
+      - name: Copy frozen backend into src-tauri resources (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $dst = "thermogram-app/src-tauri/resources/backend"
+          if (Test-Path $dst) { Remove-Item -Recurse -Force $dst }
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item -Recurse "thermogram-app/backend/dist/backend/*" $dst
+
+      - name: Install frontend deps
+        working-directory: thermogram-app
+        run: npm ci
+
+      - name: Build the Tauri app
+        uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: thermogram-app
+          args: ${{ matrix.tauri-args }}
+
+      - name: Collect artifacts
+        if: matrix.os != 'windows-latest'
+        run: |
+          mkdir -p artifacts/${{ matrix.label }}
+          find thermogram-app/src-tauri/target -type f \
+            \( -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" \) \
+            -exec cp {} artifacts/${{ matrix.label }}/ \;
+
+      - name: Collect artifacts (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "artifacts/${{ matrix.label }}" | Out-Null
+          Get-ChildItem -Recurse thermogram-app/src-tauri/target -Include *.msi,*.exe `
+            | Where-Object { $_.FullName -notmatch "deps|build" } `
+            | Copy-Item -Destination "artifacts/${{ matrix.label }}/"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thermogram-${{ matrix.label }}
+          path: artifacts/${{ matrix.label }}/*
+          if-no-files-found: error
