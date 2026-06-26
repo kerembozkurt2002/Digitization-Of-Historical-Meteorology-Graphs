@@ -77,7 +77,7 @@ jobs:
         working-directory: thermogram-app/backend
         run: |
           python -m pip install --upgrade pip
-          pip install opencv-python numpy Pillow pyinstaller
+          pip install opencv-python-headless numpy Pillow pyinstaller
 
       - name: Freeze backend with PyInstaller
         working-directory: thermogram-app/backend
