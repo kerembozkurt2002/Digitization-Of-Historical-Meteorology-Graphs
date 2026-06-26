@@ -47,13 +47,11 @@ a = Analysis(
         "llvmlite",
         "setuptools",
         "wheel",
-        "pkg_resources",
         "pygments",
         "markupsafe",
         "yaml",
         "jaraco",
         "more_itertools",
-        "importlib_metadata",
     ],
     noarchive=False,
 )
