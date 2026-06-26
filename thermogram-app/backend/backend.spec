@@ -54,7 +54,6 @@ a = Analysis(
         "jaraco",
         "more_itertools",
         "importlib_metadata",
-        "typing_extensions",
     ],
     noarchive=False,
 )
