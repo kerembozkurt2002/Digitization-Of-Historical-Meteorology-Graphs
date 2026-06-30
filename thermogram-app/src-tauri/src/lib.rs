@@ -204,8 +204,8 @@ impl BackendManager {
         }
         let exe = backend_executable(app)?;
         let cal_dir = calibrations_dir(app)?;
-        let mut child = Command::new(&exe)
-            .arg("serve")
+        let mut cmd = Command::new(&exe);
+        cmd.arg("serve")
             .env("THERMOGRAM_CALIBRATIONS_DIR", &cal_dir)
             // Force UTF-8 across stdio + filesystem so non-ASCII filenames
             // (Turkish characters, Mac-origin NFD paths, …) survive the pipe
@@ -214,7 +214,18 @@ impl BackendManager {
             .env("PYTHONIOENCODING", "utf-8")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::null());
+
+        // On Windows, console-subsystem child processes pop up a black cmd
+        // window unless we explicitly suppress it. CREATE_NO_WINDOW =
+        // 0x08000000 keeps the worker headless while leaving its pipes intact.
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000);
+        }
+
+        let mut child = cmd
             .spawn()
             .map_err(|e| format!("Failed to spawn backend: {}", e))?;
         let stdin = child
