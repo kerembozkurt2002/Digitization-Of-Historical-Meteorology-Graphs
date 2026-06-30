@@ -121,11 +121,11 @@ jobs:
       - name: Bundle install README (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
-        run: Copy-Item .github/release-readmes/WINDOWS_README.md "artifacts/${{ matrix.label }}/README.md"
+        run: Copy-Item .github/release-readmes/WINDOWS_README.txt "artifacts/${{ matrix.label }}/README.txt"
 
       - name: Bundle install README (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: cp .github/release-readmes/LINUX_README.md "artifacts/${{ matrix.label }}/README.md"
+        run: cp .github/release-readmes/LINUX_README.txt "artifacts/${{ matrix.label }}/README.txt"
 
       - uses: actions/upload-artifact@v4
         with:

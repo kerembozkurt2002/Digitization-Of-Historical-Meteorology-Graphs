@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
@@ -180,60 +181,139 @@ fn backend_executable(app: &AppHandle) -> Result<PathBuf, String> {
     Err(format!("Backend executable not found at {}", candidate.display()))
 }
 
-/// Spawn the backend executable with the given CLI args and return its stdout.
-/// Calibrations env var is injected so the Python side writes/reads from the
-/// user's app data dir instead of the (read-only) bundled location.
-fn run_backend(app: &AppHandle, args: Vec<&str>) -> Result<String, String> {
-    let cal_dir = calibrations_dir(app)?;
-    let exe = backend_executable(app)?;
+/// One live Python backend process and its stdio handles.
+struct BackendProcess {
+    child: Child,
+    stdin: ChildStdin,
+    stdout: BufReader<ChildStdout>,
+}
 
-    let output = Command::new(&exe)
-        .args(&args)
-        .env("THERMOGRAM_CALIBRATIONS_DIR", &cal_dir)
-        .output()
-        .map_err(|e| format!("Failed to execute backend: {}", e))?;
+/// Holds a single long-lived backend worker that we send NDJSON requests to.
+/// First call spawns it; if it ever dies (write fails, EOF on read), we drop
+/// the handle and the next call lazily respawns.
+#[derive(Default)]
+struct BackendManager {
+    proc: Mutex<Option<BackendProcess>>,
+}
 
-    if output.status.success() {
-        String::from_utf8(output.stdout)
-            .map_err(|e| format!("Failed to parse output: {}", e))
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        Err(format!("Backend error: {} {}", stderr, stdout))
+impl BackendManager {
+    fn ensure_spawned(&self, app: &AppHandle) -> Result<(), String> {
+        let mut guard = self.proc.lock().map_err(|e| e.to_string())?;
+        if guard.is_some() {
+            return Ok(());
+        }
+        let exe = backend_executable(app)?;
+        let cal_dir = calibrations_dir(app)?;
+        let mut child = Command::new(&exe)
+            .arg("serve")
+            .env("THERMOGRAM_CALIBRATIONS_DIR", &cal_dir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("Failed to spawn backend: {}", e))?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "backend stdin missing".to_string())?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "backend stdout missing".to_string())?;
+        *guard = Some(BackendProcess {
+            child,
+            stdin,
+            stdout: BufReader::new(stdout),
+        });
+        Ok(())
     }
+
+    /// Send a single command, return the raw JSON response line (with trailing newline).
+    fn call(
+        &self,
+        app: &AppHandle,
+        cmd: &str,
+        args: serde_json::Value,
+    ) -> Result<String, String> {
+        self.ensure_spawned(app)?;
+
+        let req = serde_json::json!({"cmd": cmd, "args": args}).to_string() + "\n";
+        let mut guard = self.proc.lock().map_err(|e| e.to_string())?;
+
+        let io_result: std::io::Result<String> = (|| {
+            let proc = guard.as_mut().expect("ensure_spawned must have set this");
+            proc.stdin.write_all(req.as_bytes())?;
+            proc.stdin.flush()?;
+            let mut response = String::new();
+            let n = proc.stdout.read_line(&mut response)?;
+            if n == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "backend closed stdout",
+                ));
+            }
+            Ok(response)
+        })();
+
+        match io_result {
+            Ok(r) => Ok(r),
+            Err(e) => {
+                // Tear down the dead worker so the next call respawns.
+                if let Some(mut p) = guard.take() {
+                    let _ = p.child.kill();
+                    let _ = p.child.wait();
+                }
+                Err(format!("Backend IO failed: {}", e))
+            }
+        }
+    }
+
+    fn shutdown(&self) {
+        if let Ok(mut guard) = self.proc.lock() {
+            if let Some(mut p) = guard.take() {
+                // Closing stdin lets the Python `for line in sys.stdin` loop end
+                // cleanly; kill is a safety net in case the worker is stuck.
+                drop(p.stdin);
+                let _ = p.child.kill();
+                let _ = p.child.wait();
+            }
+        }
+    }
+}
+
+/// Send a JSON-encoded command to the persistent backend and parse the reply.
+fn run_backend<T: serde::de::DeserializeOwned>(
+    app: &AppHandle,
+    cmd: &str,
+    args: serde_json::Value,
+) -> Result<T, String> {
+    let mgr = app.state::<BackendManager>();
+    let raw = mgr.call(app, cmd, args)?;
+    serde_json::from_str(raw.trim())
+        .map_err(|e| format!("Failed to parse backend response: {} (raw: {})", e, raw.trim()))
 }
 
 #[tauri::command]
 fn preview_grid(app: AppHandle, image_path: String, algorithm: Option<i32>, output_path: Option<String>, curvature: Option<f64>) -> Result<PreviewResponse, String> {
-    let algo_str = algorithm.unwrap_or(1).to_string();
-    let mut args = vec!["preview", "--image", &image_path, "--algorithm", &algo_str];
-
-    let output_path_str;
-    if let Some(ref path) = output_path {
-        output_path_str = path.clone();
-        args.push("--output");
-        args.push(&output_path_str);
-    }
-
-    let curvature_str;
-    if let Some(curv) = curvature {
-        curvature_str = curv.to_string();
-        args.push("--curvature");
-        args.push(&curvature_str);
-    }
-
-    let output = run_backend(&app, args)?;
-    serde_json::from_str(&output)
-        .map_err(|e| format!("Failed to parse response: {}", e))
+    run_backend(
+        &app,
+        "preview",
+        serde_json::json!({
+            "image": image_path,
+            "algorithm": algorithm.unwrap_or(1),
+            "output": output_path,
+            "curvature": curvature,
+        }),
+    )
 }
 
 #[tauri::command]
 fn detect_template(app: AppHandle, image_path: String) -> Result<DetectTemplateResponse, String> {
-    let args = vec!["detect-template", "--image", &image_path];
-
-    let output = run_backend(&app, args)?;
-    serde_json::from_str(&output)
-        .map_err(|e| format!("Failed to parse response: {}", e))
+    run_backend(
+        &app,
+        "detect-template",
+        serde_json::json!({ "image": image_path }),
+    )
 }
 
 /// Write a rotated/normalized image to the OS temp directory and return its path.
@@ -340,11 +420,11 @@ fn write_csv_next_to_image(image_path: String, csv_content: String) -> Result<St
 
 #[tauri::command]
 fn get_calibration(app: AppHandle, template_id: String) -> Result<GetCalibrationResponse, String> {
-    let args = vec!["get-calibration", "--template-id", &template_id];
-
-    let output = run_backend(&app, args)?;
-    serde_json::from_str(&output)
-        .map_err(|e| format!("Failed to parse response: {}", e))
+    run_backend(
+        &app,
+        "get-calibration",
+        serde_json::json!({ "template_id": template_id }),
+    )
 }
 
 #[tauri::command]
@@ -390,63 +470,30 @@ fn save_calibration_simple(
         "image_height": image_height
     });
 
-    let calibration_json = calibration_data.to_string();
-
-    let args = vec![
+    run_backend(
+        &app,
         "save-calibration-simple",
-        "--data", &calibration_json
-    ];
-
-    let output = run_backend(&app, args)?;
-    serde_json::from_str(&output)
-        .map_err(|e| format!("Failed to parse response: {}", e))
+        serde_json::json!({ "data": calibration_data.to_string() }),
+    )
 }
 
 #[tauri::command]
 fn extract_curve(app: AppHandle, image_path: String, template_id: String, sample_interval: Option<i32>, x_min: Option<i32>, x_max: Option<i32>, y_hint: Option<i32>, y_hint_end: Option<i32>, y_min: Option<i32>, y_max: Option<i32>) -> Result<ExtractCurveResponse, String> {
-    let interval_str = sample_interval.unwrap_or(5).to_string();
-    let x_min_str = x_min.map(|v| v.to_string());
-    let x_max_str = x_max.map(|v| v.to_string());
-    let y_hint_str = y_hint.map(|v| v.to_string());
-    let y_hint_end_str = y_hint_end.map(|v| v.to_string());
-    let y_min_str = y_min.map(|v| v.to_string());
-    let y_max_str = y_max.map(|v| v.to_string());
-
-    let mut args = vec![
+    run_backend(
+        &app,
         "extract-curve",
-        "--image", &image_path,
-        "--template-id", &template_id,
-        "--sample-interval", &interval_str,
-    ];
-
-    if let Some(ref v) = x_min_str {
-        args.push("--x-min");
-        args.push(v);
-    }
-    if let Some(ref v) = x_max_str {
-        args.push("--x-max");
-        args.push(v);
-    }
-    if let Some(ref v) = y_hint_str {
-        args.push("--y-hint");
-        args.push(v);
-    }
-    if let Some(ref v) = y_hint_end_str {
-        args.push("--y-hint-end");
-        args.push(v);
-    }
-    if let Some(ref v) = y_min_str {
-        args.push("--y-min");
-        args.push(v);
-    }
-    if let Some(ref v) = y_max_str {
-        args.push("--y-max");
-        args.push(v);
-    }
-
-    let output = run_backend(&app, args)?;
-    serde_json::from_str(&output)
-        .map_err(|e| format!("Failed to parse response: {}", e))
+        serde_json::json!({
+            "image": image_path,
+            "template_id": template_id,
+            "sample_interval": sample_interval.unwrap_or(5),
+            "x_min": x_min,
+            "x_max": x_max,
+            "y_hint": y_hint,
+            "y_hint_end": y_hint_end,
+            "y_min": y_min,
+            "y_max": y_max,
+        }),
+    )
 }
 
 #[tauri::command]
@@ -458,25 +505,19 @@ fn snap_drawing_to_curve(
     snap_band: Option<i32>,
     sample_interval: Option<i32>,
 ) -> Result<ExtractCurveResponse, String> {
-    let snap_band_str = snap_band.unwrap_or(15).to_string();
-    let interval_str = sample_interval.unwrap_or(1).to_string();
-
-    // Serialize drawn points to JSON
     let points_json = serde_json::to_string(&drawn_points)
         .map_err(|e| format!("Failed to serialize points: {}", e))?;
-
-    let args = vec![
+    run_backend(
+        &app,
         "snap-drawing",
-        "--image", &image_path,
-        "--template-id", &template_id,
-        "--points", &points_json,
-        "--snap-band", &snap_band_str,
-        "--sample-interval", &interval_str,
-    ];
-
-    let output = run_backend(&app, args)?;
-    serde_json::from_str(&output)
-        .map_err(|e| format!("Failed to parse response: {}", e))
+        serde_json::json!({
+            "image": image_path,
+            "template_id": template_id,
+            "points": points_json,
+            "snap_band": snap_band.unwrap_or(15),
+            "sample_interval": sample_interval.unwrap_or(1),
+        }),
+    )
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -486,6 +527,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(TempFileTracker::default())
+        .manage(BackendManager::default())
         .setup(|app| {
             seed_default_calibrations(app.handle());
             Ok(())
@@ -510,6 +552,8 @@ pub fn run() {
         if matches!(event, tauri::RunEvent::Exit) {
             // Sweep any rotated temp files we wrote during the session.
             handle.state::<TempFileTracker>().purge();
+            // Stop the persistent backend worker so it doesn't outlive the GUI.
+            handle.state::<BackendManager>().shutdown();
         }
     });
 }

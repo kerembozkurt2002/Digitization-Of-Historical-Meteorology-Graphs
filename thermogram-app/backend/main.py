@@ -7,6 +7,7 @@ It provides CLI commands for processing thermogram images.
 """
 
 import argparse
+import io
 import json
 import sys
 import os
@@ -368,7 +369,77 @@ def cmd_snap_drawing(args):
         return 1
 
 
-def main():
+def cmd_serve(args):
+    """Long-lived JSON-over-stdio worker.
+
+    Wire format is newline-delimited JSON on both directions:
+      request:  {"cmd": "<subcommand>", "args": {"<key>": <value>, ...}}\n
+      response: <single-line JSON exactly as the CLI would have printed>\n
+
+    The dispatcher reuses the same argparse + cmd_* code path the CLI does,
+    so behavior stays in lockstep with the one-shot CLI commands. Each cmd_*
+    still prints its JSON to stdout; we capture that into a buffer and only
+    forward the final JSON line to the real stdout. Anything the pipeline
+    writes to its own stdout (warnings, configs/__init__.py, …) gets sent
+    to stderr instead so the response stream stays clean.
+
+    EOF on stdin (Rust closing its end) terminates the loop cleanly.
+    """
+    parser = build_parser()
+    real_stdout = sys.stdout
+    # All stray print()s during command processing go to stderr.
+    sys.stdout = sys.stderr
+
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            break  # parent closed stdin
+        line = line.strip()
+        if not line:
+            continue
+
+        try:
+            req = json.loads(line)
+            cmd_name = req.get("cmd")
+            if not cmd_name or cmd_name == "serve":
+                resp_line = json.dumps({"success": False, "error": f"bad cmd: {cmd_name}"})
+            else:
+                req_args = req.get("args") or {}
+                argv = [cmd_name]
+                for k, v in req_args.items():
+                    if v is None:
+                        continue
+                    argv.append("--" + k.replace("_", "-"))
+                    argv.append(str(v))
+
+                buf = io.StringIO()
+                sys.stdout = buf
+                try:
+                    sub_args = parser.parse_args(argv)
+                    sub_args.func(sub_args)
+                except SystemExit:
+                    # argparse calls sys.exit() on parse errors — convert
+                    pass
+                finally:
+                    sys.stdout = sys.stderr
+
+                captured = [l for l in buf.getvalue().split("\n") if l.strip()]
+                if not captured:
+                    resp_line = json.dumps({"success": False, "error": "empty response"})
+                else:
+                    # cmd_* prints exactly one JSON line on success; last
+                    # non-empty line is the response.
+                    resp_line = captured[-1]
+        except Exception as e:
+            resp_line = json.dumps({"success": False, "error": f"server error: {e}"})
+
+        real_stdout.write(resp_line + "\n")
+        real_stdout.flush()
+
+    return 0
+
+
+def build_parser():
     parser = argparse.ArgumentParser(
         description="Thermogram Digitization Backend",
         formatter_class=argparse.RawDescriptionHelpFormatter
@@ -432,6 +503,15 @@ def main():
                              help='Output point spacing (default: 1)')
     snap_parser.set_defaults(func=cmd_snap_drawing)
 
+    # Serve command — keeps the backend alive across multiple Tauri calls
+    serve_parser = subparsers.add_parser('serve', help='Run as a long-lived JSON-over-stdio worker')
+    serve_parser.set_defaults(func=cmd_serve)
+
+    return parser
+
+
+def main():
+    parser = build_parser()
     args = parser.parse_args()
 
     if args.command is None:
