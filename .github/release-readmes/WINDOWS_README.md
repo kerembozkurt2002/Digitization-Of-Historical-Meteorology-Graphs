@@ -1,11 +1,8 @@
 # Thermogram Digitizer — Windows Kurulum
 
-ZIP arşivinde iki kurulum dosyası bulunur:
+ZIP arşivinde tek bir kurulum dosyası bulunur:
 
-- `Thermogram Digitizer_*_x64-setup.exe` — NSIS installer (önerilen)
-- `Thermogram Digitizer_*_x64_en-US.msi` — MSI installer (alternatif)
-
-İkisi de aynı uygulamayı kurar. Yalnızca birini çalıştırın, diğerini ihtiyacınız olmazsa silebilirsiniz.
+- `Thermogram Digitizer_*_x64-setup.exe`
 
 ---
 

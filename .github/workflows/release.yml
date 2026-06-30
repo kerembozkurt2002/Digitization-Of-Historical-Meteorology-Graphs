@@ -115,7 +115,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "artifacts/${{ matrix.label }}" | Out-Null
-          Get-ChildItem -Recurse thermogram-app/src-tauri/target/release/bundle -Include *.msi,*-setup.exe `
+          Get-ChildItem -Recurse thermogram-app/src-tauri/target/release/bundle -Include *-setup.exe `
             | Copy-Item -Destination "artifacts/${{ matrix.label }}/"
 
       - name: Bundle install README (Windows)
