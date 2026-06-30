@@ -123,9 +123,17 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "artifacts/${{ matrix.label }}" | Out-Null
-          Get-ChildItem -Recurse thermogram-app/src-tauri/target -Include *.msi,*.exe `
-            | Where-Object { $_.FullName -notmatch "deps|build" } `
+          Get-ChildItem -Recurse thermogram-app/src-tauri/target/release/bundle -Include *.msi,*-setup.exe `
             | Copy-Item -Destination "artifacts/${{ matrix.label }}/"
+
+      - name: Bundle install README (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: Copy-Item .github/release-readmes/WINDOWS_README.md "artifacts/${{ matrix.label }}/README.md"
+
+      - name: Bundle install README (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: cp .github/release-readmes/LINUX_README.md "artifacts/${{ matrix.label }}/README.md"
 
       - uses: actions/upload-artifact@v4
         with:
