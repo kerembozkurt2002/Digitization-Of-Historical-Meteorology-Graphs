@@ -52,6 +52,11 @@ export function useZoomPan({
       if (e.deltaMode === 1) dy *= 16;
       else if (e.deltaMode === 2) dy *= 100;
 
+      // Windows mouse wheels emit ~±100-120 per tick while macOS trackpads
+      // emit ~±1-5. Clamping keeps a single tick from triggering a 3× zoom
+      // jump on Windows without slowing the trackpad UX on macOS.
+      dy = Math.max(-50, Math.min(50, dy));
+
       const factor = Math.exp(-dy * zoomSpeed);
       const newZoom = Math.max(minZoom, Math.min(maxZoom, currentZoom * factor));
       if (newZoom === currentZoom) return;
