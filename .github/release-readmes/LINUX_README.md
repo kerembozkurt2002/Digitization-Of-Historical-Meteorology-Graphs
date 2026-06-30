@@ -1,53 +1,19 @@
 # Thermogram Digitizer — Linux Kurulum
 
-ZIP arşivinde iki kurulum dosyası bulunur:
+ZIP arşivinde tek bir kurulum dosyası bulunur:
 
-- `Thermogram Digitizer_*_amd64.AppImage` — taşınabilir, dağıtım bağımsız
-- `Thermogram Digitizer_*_amd64.deb` — Debian / Ubuntu paket yöneticisi için
+- `Thermogram Digitizer_*_amd64.deb` — Debian / Ubuntu paketi
 
----
-
-## Seçenek 1 — AppImage (önerilen)
-
-AppImage tek dosyadır, kurulum gerektirmez, herhangi bir Linux dağıtımında çalışır.
-
-1. Dosyayı çalıştırılabilir olarak işaretleyin:
-
-   ```bash
-   chmod +x "Thermogram Digitizer_"*.AppImage
-   ```
-
-2. Çift tıklayarak veya terminalden çalıştırın:
-
-   ```bash
-   ./Thermogram\ Digitizer_*.AppImage
-   ```
-
-3. Eğer `dlopen(): error loading libfuse.so.2` veya benzeri hata alırsanız, FUSE 2 kütüphanesini yükleyin:
-
-   **Ubuntu / Debian:**
-   ```bash
-   sudo apt install libfuse2
-   ```
-
-   **Fedora:**
-   ```bash
-   sudo dnf install fuse
-   ```
-
-   **Arch / Manjaro:**
-   ```bash
-   sudo pacman -S fuse2
-   ```
+Ubuntu 22.04 ve üzeri ile Debian 11 ve üzerinde test edilmiştir.
 
 ---
 
-## Seçenek 2 — `.deb` (Ubuntu / Debian)
+## Kurulum
 
 1. Paketi kurun:
 
    ```bash
-   sudo dpkg -i Thermogram-Digitizer_*_amd64.deb
+   sudo dpkg -i Thermogram\ Digitizer_*_amd64.deb
    ```
 
 2. Eksik bağımlılık olursa onarın:
@@ -56,7 +22,7 @@ AppImage tek dosyadır, kurulum gerektirmez, herhangi bir Linux dağıtımında 
    sudo apt-get install -f
    ```
 
-3. Uygulamayı başlatın — Uygulamalar menüsünde **Thermogram Digitizer** olarak görünür, ya da terminalden:
+3. Uygulamayı başlatın — Uygulamalar menüsünde **Thermogram Digitizer** olarak görünür. Terminalden:
 
    ```bash
    thermogram-digitizer
@@ -66,22 +32,20 @@ AppImage tek dosyadır, kurulum gerektirmez, herhangi bir Linux dağıtımında 
 
 ## Kaldırma
 
-- **AppImage:** Dosyayı silmeniz yeterli.
-- **`.deb`:**
-  ```bash
-  sudo apt remove thermogram-digitizer
-  ```
+```bash
+sudo apt remove thermogram-digitizer
+```
 
 ---
 
 ## Sorun Giderme
 
-- **"webkit2gtk not found":** Sisteminizde WebKit2GTK 4.1 kurulu değil.
+- **`libwebkit2gtk-4.1-0` bulunamadı:** Eski bir dağıtım kullanıyorsunuz. Ubuntu 22.04+ veya Debian 12+ gerekir.
   ```bash
   sudo apt install libwebkit2gtk-4.1-0
   ```
-- **`.deb` Ubuntu 24.04'te kurulmuyor:** AppImage tercih edin, çünkü yeni Ubuntu sürümleri WebKit ABI uyumsuzluğu yaşayabilir.
-- **Uygulama açılmıyor:** Terminal üzerinden çalıştırıp hata mesajlarını görün:
+- **Uygulama açılmıyor / siyah pencere:** WebKit sürücüsü sorun çıkarıyor olabilir. Terminalden başlatıp hata mesajını okuyun:
   ```bash
-  ./Thermogram\ Digitizer_*.AppImage
+  thermogram-digitizer
   ```
+- **Ubuntu 24.04 / Fedora gibi farklı dağıtım:** `.deb` Ubuntu/Debian'a özel. Diğer dağıtımlarda alien gibi araçlarla dönüştürmek yerine, kaynak koddan derlemeyi tercih edin (repo'daki README'ye bakın).
