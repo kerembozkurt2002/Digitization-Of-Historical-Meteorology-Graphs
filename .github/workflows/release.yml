@@ -23,14 +23,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
-            label: macos-arm64
-            rust-target: aarch64-apple-darwin
-            tauri-args: "--target aarch64-apple-darwin"
-          - os: macos-13
-            label: macos-x86_64
-            rust-target: x86_64-apple-darwin
-            tauri-args: "--target x86_64-apple-darwin"
           - os: ubuntu-22.04
             label: linux-x86_64
             rust-target: x86_64-unknown-linux-gnu
