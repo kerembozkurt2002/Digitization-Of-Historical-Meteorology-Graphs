@@ -7,7 +7,15 @@ Build from the backend/ directory:
 Output: dist/backend (mac/linux) or dist/backend.exe (windows).
 """
 
+import sys
+
 from PyInstaller.utils.hooks import collect_submodules
+
+# GNU strip on Windows (shipped via Git for Windows / MinGW) corrupts
+# python3XX.dll: the loader then aborts with
+#   "Failed to load Python DLL ... Invalid access to memory location".
+# Keep strip on for mac/linux where the savings are real and safe.
+STRIP_BINARIES = sys.platform != "win32"
 
 hidden = []
 hidden += collect_submodules("cv2")
@@ -79,7 +87,7 @@ coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
-    strip=True,
+    strip=STRIP_BINARIES,
     upx=False,
     upx_exclude=[],
     name="backend",
