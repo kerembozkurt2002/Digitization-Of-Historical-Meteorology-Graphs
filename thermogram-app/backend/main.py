@@ -11,6 +11,7 @@ import io
 import json
 import sys
 import os
+import unicodedata
 from pathlib import Path
 
 import cv2
@@ -385,6 +386,14 @@ def cmd_serve(args):
 
     EOF on stdin (Rust closing its end) terminates the loop cleanly.
     """
+    # Belt-and-suspenders: pin stdio to UTF-8 even if PYTHONUTF8 didn't make it.
+    # Windows' default cp1252 would otherwise mangle non-ASCII paths over the pipe.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     parser = build_parser()
     real_stdout = sys.stdout
     # All stray print()s during command processing go to stderr.
@@ -405,6 +414,13 @@ def cmd_serve(args):
                 resp_line = json.dumps({"success": False, "error": f"bad cmd: {cmd_name}"})
             else:
                 req_args = req.get("args") or {}
+                # NFC-normalize string args so HFS+/Mac-origin NFD paths
+                # ("G" + combining breve) match Windows' on-disk NFC names
+                # ("Ğ") for os.path.exists / open().
+                req_args = {
+                    k: unicodedata.normalize("NFC", v) if isinstance(v, str) else v
+                    for k, v in req_args.items()
+                }
                 argv = [cmd_name]
                 for k, v in req_args.items():
                     if v is None:

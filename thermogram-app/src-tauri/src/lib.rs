@@ -207,6 +207,11 @@ impl BackendManager {
         let mut child = Command::new(&exe)
             .arg("serve")
             .env("THERMOGRAM_CALIBRATIONS_DIR", &cal_dir)
+            // Force UTF-8 across stdio + filesystem so non-ASCII filenames
+            // (Turkish characters, Mac-origin NFD paths, …) survive the pipe
+            // under Windows' default cp1252 locale.
+            .env("PYTHONUTF8", "1")
+            .env("PYTHONIOENCODING", "utf-8")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
